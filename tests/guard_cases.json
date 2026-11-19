@@ -1,0 +1,33 @@
+{
+ "max_rows": 200,
+ "cases": [
+  {"sql": "SELECT * FROM Track", "ok": true, "expect_sql": "SELECT * FROM Track\nLIMIT 200"},
+  {"sql": "select Name from Genre;", "ok": true, "expect_sql": "select Name from Genre\nLIMIT 200"},
+  {"sql": "SELECT Name FROM Track LIMIT 10", "ok": true, "expect_sql": "SELECT Name FROM Track LIMIT 10"},
+  {"sql": "SELECT Name FROM Track LIMIT 5000", "ok": true, "expect_sql": "SELECT Name FROM Track LIMIT 200"},
+  {"sql": "SELECT Name FROM Track LIMIT 900 OFFSET 3", "ok": true, "expect_sql": "SELECT Name FROM Track LIMIT 200 OFFSET 3"},
+  {"sql": "SELECT * FROM (SELECT Name FROM Track LIMIT 3)", "ok": true, "expect_sql": "SELECT * FROM (SELECT Name FROM Track LIMIT 3)\nLIMIT 200"},
+  {"sql": "WITH t AS (SELECT 1 AS x) SELECT x FROM t", "ok": true, "expect_sql": "WITH t AS (SELECT 1 AS x) SELECT x FROM t\nLIMIT 200"},
+  {"sql": "SELECT Name FROM Track LIMIT 2 + 2", "ok": true, "expect_sql": "SELECT * FROM (\nSELECT Name FROM Track LIMIT 2 + 2\n) LIMIT 200"},
+  {"sql": "SELECT 'a; DROP TABLE Track' AS s", "ok": true, "expect_sql": "SELECT 'a; DROP TABLE Track' AS s\nLIMIT 200"},
+  {"sql": "SELECT replace(Name, 'a', 'b') FROM Artist", "ok": true},
+  {"sql": "SELECT \"Name\" FROM [Artist] -- trailing comment; DELETE", "ok": true},
+  {"sql": "SELECT 'it''s' AS s", "ok": true},
+  {"sql": "SELECT created_at, updated_by FROM Invoice", "ok": true},
+  {"sql": "", "ok": false, "reason": "empty"},
+  {"sql": "DROP TABLE Track", "ok": false, "reason": "only SELECT"},
+  {"sql": "DELETE FROM Track", "ok": false, "reason": "only SELECT"},
+  {"sql": "SELECT 1; DROP TABLE Track", "ok": false, "reason": "one statement"},
+  {"sql": "SELECT 1; SELECT 2", "ok": false, "reason": "one statement"},
+  {"sql": "WITH x AS (SELECT 1) DELETE FROM Track", "ok": false, "reason": "DELETE"},
+  {"sql": "WITH x AS (SELECT 1) REPLACE INTO Genre VALUES (99, 'x')", "ok": false, "reason": "REPLACE"},
+  {"sql": "PRAGMA table_info(Track)", "ok": false, "reason": "only SELECT"},
+  {"sql": "SELECT * FROM Track /* unterminated", "ok": false, "reason": "unterminated"},
+  {"sql": "SELECT 'oops FROM Track", "ok": false, "reason": "unterminated"},
+  {"sql": "SELECT (1", "ok": false, "reason": "parentheses"},
+  {"sql": "ATTACH DATABASE 'x.db' AS x", "ok": false, "reason": "only SELECT"},
+  {"sql": "SELECT load_extension('evil')", "ok": false, "reason": "LOAD_EXTENSION"},
+  {"sql": "/* hi */ UPDATE Track SET Name = 'x'", "ok": false, "reason": "only SELECT"},
+  {"sql": "EXPLAIN SELECT 1", "ok": false, "reason": "only SELECT"}
+ ]
+}

@@ -1,0 +1,22 @@
+[project]
+name = "sqlask"
+version = "0.1.0"
+description = "Text-to-SQL analyst: plain-English questions over SQLite, with a read-only guard, error-driven retries and an execution-accuracy eval"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.10.0",
+]
+
+[project.scripts]
+sqlask = "sqlask:main"
+sqlask-eval = "sqlask.evaluate:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
