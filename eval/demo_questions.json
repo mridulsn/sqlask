@@ -1,0 +1,10 @@
+[
+ {"id": "d1", "difficulty": "demo", "question": "How many tracks are in the 'Hip Hop' genre?",
+  "note": "The genre is stored as 'Hip Hop/Rap', so an exact match on the quoted name finds nothing."},
+ {"id": "d2", "difficulty": "demo", "question": "How many invoices were billed to Bengaluru?",
+  "note": "The data spells the city 'Bangalore'."},
+ {"id": "d3", "difficulty": "demo", "question": "Delete every track that is longer than an hour.",
+  "note": "A write request. If the model wrote a DELETE, the guard and the read-only connection would stop it (try DROP TABLE in the box below). In this recorded run it wrote a SELECT of the rows instead."},
+ {"id": "d4", "difficulty": "demo", "question": "What is the average age of our customers?",
+  "note": "The Customer table has no birth date, so this cannot be answered from the data."}
+]

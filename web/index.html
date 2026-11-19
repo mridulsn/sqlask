@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sqlask: Text-to-SQL Analyst</title>
+<meta name="description" content="Ask a SQLite database questions in plain English. The model writes one SELECT, a read-only guard checks it, errors go back for a retry, and the answer comes with the SQL used.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <nav class="links">
+    <a href="/">Back to mridulsaravanan.com</a>
+    <a href="https://github.com/mridulsn/sqlask">Source on GitHub</a>
+  </nav>
+  <h1>sqlask</h1>
+  <p class="lede">Ask a database a question in plain English. A model writes one SQLite
+  <code>SELECT</code>, a read-only guard checks it, SQL errors and suspicious empty results go
+  back to the model for another try, and you get a short answer plus the exact query used.</p>
+  <p class="pipeline" aria-label="Pipeline">
+    <span>question</span><span class="arr">&rsaquo;</span><span>schema summary</span><span class="arr">&rsaquo;</span><span>model writes SQL</span><span class="arr">&rsaquo;</span><span>read-only guard</span><span class="arr">&rsaquo;</span><span>execute</span><span class="arr">&rsaquo;</span><span>retry on error (max 3)</span><span class="arr">&rsaquo;</span><span>answer + SQL</span>
+  </p>
+  <p class="status" id="db-status">Loading the database in your browser...</p>
+</header>
+
+<main>
+  <section id="replay" aria-labelledby="replay-h">
+    <div class="sec-head">
+      <h2 id="replay-h">Replay a recorded run</h2>
+      <p class="muted" id="rec-label">Recorded run</p>
+    </div>
+    <p class="muted small">The model calls below were recorded once and are replayed here, step by step.
+      Everything after the model writes its SQL (the guard, the query, the result table, the check against
+      the hand-written gold query) runs live in your browser with sql.js.</p>
+    <div class="picker">
+      <label for="q-select">Example question</label>
+      <div class="picker-row">
+        <select id="q-select"></select>
+        <button id="replay-btn" type="button" class="primary">Replay run</button>
+      </div>
+      <div class="chips" id="quick-picks" aria-label="Runs that needed a retry"></div>
+    </div>
+
+    <div id="replay-out" class="replay-out" hidden>
+      <p class="q-text" id="r-question"></p>
+      <ol class="attempts" id="r-attempts"></ol>
+      <div id="r-final" hidden>
+        <h3>Answer</h3>
+        <p class="answer" id="r-answer"></p>
+        <h3>SQL used</h3>
+        <pre class="sql" id="r-sql"></pre>
+        <h3>Result <span class="muted small" id="r-live-note">re-executed live in your browser</span></h3>
+        <div class="table-wrap" id="r-table"></div>
+        <div class="verdict" id="r-verdict"></div>
+        <details class="gold" id="r-gold">
+          <summary>Gold query for this question</summary>
+          <pre class="sql" id="r-gold-sql"></pre>
+          <div class="table-wrap" id="r-gold-table"></div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section id="playground" aria-labelledby="play-h">
+    <div class="sec-head">
+      <h2 id="play-h">Run your own SQL</h2>
+      <p class="muted">Live, read-only, in your browser</p>
+    </div>
+    <p class="muted small">Your query goes through the same guard as the model's (a JavaScript port of
+      <code>guard.py</code>, tested against the same cases): one statement, <code>SELECT</code> or
+      <code>WITH</code> only, no write keywords, and a <code>LIMIT 200</code> added or capped. The database
+      is also opened with <code>query_only</code>, and a query that runs longer than 8 seconds is stopped.</p>
+    <label for="sql-box" class="visually-hidden">SQL query</label>
+    <textarea id="sql-box" spellcheck="false" rows="7">SELECT g.Name AS genre, COUNT(*) AS tracks
+FROM Track t JOIN Genre g ON g.GenreId = t.GenreId
+GROUP BY g.GenreId
+ORDER BY tracks DESC</textarea>
+    <div class="play-row">
+      <button id="run-btn" type="button" class="primary">Run query</button>
+      <span class="muted small">Try:</span>
+      <button type="button" class="ghost" data-sql="SELECT Name FROM Track">no LIMIT</button>
+      <button type="button" class="ghost" data-sql="DROP TABLE Track">DROP TABLE</button>
+      <button type="button" class="ghost" data-sql="SELECT 1; DELETE FROM Invoice">two statements</button>
+      <button type="button" class="ghost" data-sql="SELECT COUNT(*) FROM Customers">a typo</button>
+    </div>
+    <div id="play-guard" class="guard-note" aria-live="polite"></div>
+    <div class="table-wrap" id="play-table"></div>
+    <details class="schema">
+      <summary>Tables in the database</summary>
+      <div id="schema-list"></div>
+    </details>
+  </section>
+
+  <section id="scores" aria-labelledby="score-h">
+    <div class="sec-head">
+      <h2 id="score-h">Eval scoreboard</h2>
+      <p class="muted" id="score-label"></p>
+    </div>
+    <p class="muted small">Execution accuracy on 40 questions with hand-written gold queries: a run counts as
+      correct when its result rows equal the gold result (order ignored unless the question asks for one,
+      numbers rounded to 2 decimals, extra columns allowed).</p>
+    <div class="table-wrap">
+      <table class="sets-table" id="sets-table"></table>
+    </div>
+    <p class="muted small">Schema "full" is the prompt the pipeline normally uses: tables, columns, types, keys and a few
+      sample values per column. "bare" drops the sample values (an ablation on the 6 questions most likely to need
+      an exact stored value). Retried counts questions that needed more than one attempt; "x2" in the table below
+      marks them. Strict also requires the same number of columns as the gold query.</p>
+    <p class="note">Both models scored 40 of 40, so this set does not separate them, and the retry loop
+      rarely had to fire. Chinook is a very widely used sample database and the models write defensive filters
+      for it (<code>LIKE '%hip%hop%'</code>, <code>IN ('United Kingdom', 'UK')</code>) even with no sample
+      values in the prompt. The four demo prompts above show the retry loop doing real work.</p>
+    <div class="score-grid">
+      <table class="score-table" id="score-table"></table>
+      <div class="score-facts" id="score-facts"></div>
+    </div>
+    <h3>Every scored question</h3>
+    <p class="muted small">Select a row to replay it above.</p>
+    <div class="table-wrap">
+      <table class="runs-table" id="runs-table"></table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Data: the <a href="https://github.com/lerocha/chinook-database">Chinook sample database</a>,
+    copyright (c) 2008-2024 Luis Rocha, used under the <a href="data/CHINOOK-LICENSE.md">MIT licence</a>.
+    Customer and employee records in it are sample data.</p>
+  <p>Built by Mridul Saravanan. <a href="https://github.com/mridulsn/sqlask">Source on GitHub</a> &middot;
+    <a href="/">mridulsaravanan.com</a></p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

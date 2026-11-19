@@ -141,6 +141,16 @@ def test_fake_eval_end_to_end(tmp_path):
     from sqlask.evaluate import main
     out = tmp_path / "runs.json"
     main(["--provider", "fake", "--out", str(out), "--parallel", "1"])
+    main(["--provider", "fake", "--out", str(out), "--parallel", "1", "--set-name", "b",
+          "--schema", "bare", "--only", "e01", "e02"])
     data = json.loads(out.read_text())
-    assert data["summary"]["overall"]["accuracy"] == 1.0
-    assert all(r["final_sql"] for r in data["runs"])
+    sets = {s["name"]: s for s in data["sets"]}
+    assert sets["main"]["summary"]["overall"]["accuracy"] == 1.0
+    assert all(r["final_sql"] for r in sets["main"]["runs"])
+    assert sets["b"]["meta"]["schema"] == "bare" and len(sets["b"]["runs"]) == 2
+
+
+def test_bare_schema_has_no_samples():
+    bare = schema_summary(samples=False)
+    assert "TABLE Genre" in bare and "foreign key: GenreId -> Genre.GenreId" in bare
+    assert "e.g." not in bare and "all values" not in bare

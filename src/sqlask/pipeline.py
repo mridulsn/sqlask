@@ -130,7 +130,7 @@ def build_answer_prompt(question: str, sql: str, res: QueryResult) -> str:
 def ask(question: str, provider: Provider, conn: sqlite3.Connection, schema: str,
         sql_model: str = "sonnet", answer_model: str = "haiku",
         max_attempts: int = MAX_ATTEMPTS, max_rows: int = DEFAULT_MAX_ROWS,
-        write_answer: bool = True) -> AskResult:
+        write_answer: bool | str = True) -> AskResult:
     attempts: list[Attempt] = []
     final: QueryResult | None = None
     final_sql: str | None = None
@@ -193,7 +193,8 @@ def ask(question: str, provider: Provider, conn: sqlite3.Connection, schema: str
 
     rows = [[_jsonable(v) for v in r] for r in final.rows]
     answer, meta = "", {}
-    if write_answer:
+    # write_answer: True, False, or "retried" (only when the query needed a retry)
+    if write_answer is True or (write_answer == "retried" and len(attempts) > 1):
         try:
             comp = provider.complete(ANSWER_SYSTEM, build_answer_prompt(question, final_sql, final),
                                      model=answer_model, max_tokens=1000)

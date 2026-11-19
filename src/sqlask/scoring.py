@@ -18,6 +18,9 @@ from __future__ import annotations
 from collections import Counter
 from decimal import Decimal
 from itertools import product
+import re
+
+_NUMERIC = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
 
 
 def norm(v):
@@ -29,10 +32,9 @@ def norm(v):
         return round(float(v), 2) + 0.0
     if isinstance(v, str):
         s = v.strip()
-        try:
+        if _NUMERIC.match(s):  # stricter than float(): no 'nan' / 'inf' / '1_000'
             return round(float(s), 2) + 0.0
-        except ValueError:
-            return s
+        return s
     return str(v)
 
 

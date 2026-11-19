@@ -33,16 +33,20 @@ def gold_result(conn, q: dict):
 
 
 def evaluate_one(q: dict, provider: Provider, db_path: Path, schema: str,
-                 sql_model: str, answer_model: str, write_answer: bool) -> dict:
+                 sql_model: str, answer_model: str, write_answer) -> dict:
     conn = open_readonly(db_path)  # one connection per worker thread
     try:
-        gold = gold_result(conn, q)
+        gold = gold_result(conn, q) if q.get("gold_sql") else None
         res = ask(q["question"], provider, conn, schema, sql_model=sql_model,
                   answer_model=answer_model, write_answer=write_answer)
     finally:
         conn.close()
-    correct = res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False))
-    strict = res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False), strict=True)
+    if gold is None:  # demo prompt without a gold query: recorded, not scored
+        correct = strict = None
+    else:
+        correct = bool(res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False)))
+        strict = bool(res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False),
+                                               strict=True))
     attempts = [{
         "n": a.n, "sql": a.sql, "error": a.error, "error_kind": a.error_kind,
         "row_count": a.row_count, "model": a.model, "cost_usd": a.cost_usd,
@@ -52,16 +56,18 @@ def evaluate_one(q: dict, provider: Provider, db_path: Path, schema: str,
     return {
         "id": q["id"], "difficulty": q["difficulty"], "tags": q.get("tags", []),
         "question": q["question"], "ordered": q.get("ordered", False),
-        "gold_sql": q["gold_sql"], "gold_row_count": len(gold.rows),
+        "gold_sql": q.get("gold_sql"), "gold_row_count": len(gold.rows) if gold else None,
+        "note": q.get("note"),
         "final_sql": res.sql, "ok": res.ok, "row_count": len(res.rows),
         "answer": res.answer, "answer_model": res.answer_meta.get("model"),
         "attempts": attempts, "n_attempts": len(res.attempts),
-        "correct": bool(correct), "correct_strict": bool(strict),
+        "correct": correct, "correct_strict": strict,
         "cost_usd": round(cost, 6),
     }
 
 
-def summarize(runs: list[dict]) -> dict:
+def summarize(all_runs: list[dict]) -> dict:
+    runs = [r for r in all_runs if r["correct"] is not None]  # scored runs only
     def acc(rs, key="correct"):
         return {"n": len(rs), "correct": sum(r[key] for r in rs),
                 "accuracy": round(sum(r[key] for r in rs) / len(rs), 3) if rs else None}
@@ -83,9 +89,25 @@ def summarize(runs: list[dict]) -> dict:
         "retry_ids": [r["id"] for r in retried],
         "failed_ids": [r["id"] for r in runs if not r["correct"]],
         "error_kinds": kinds,
-        "sql_calls": sum(r["n_attempts"] for r in runs),
-        "total_cost_usd": round(sum(r["cost_usd"] for r in runs), 4),
+        "sql_calls": sum(r["n_attempts"] for r in all_runs),
+        "total_cost_usd": round(sum(r["cost_usd"] for r in all_runs), 4),
+        "unscored": len(all_runs) - len(runs),
     }
+
+
+def write_set(path: Path, entry: dict) -> None:
+    """runs.json holds several run sets; replace the one with this name."""
+    data = {"sets": []}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            pass
+        if "sets" not in data:
+            data = {"sets": []}
+    data["sets"] = [s for s in data["sets"] if s["name"] != entry["name"]] + [entry]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
 
 
 def _cli_version() -> str | None:
@@ -118,56 +140,68 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--provider", choices=["cli", "anthropic", "fake"], default="cli")
     p.add_argument("--sql-model", default="sonnet")
     p.add_argument("--answer-model", default="haiku")
-    p.add_argument("--no-answer", action="store_true", help="skip the answer-writing call")
+    p.add_argument("--answers", choices=["all", "retried", "none"], default="all",
+                   help="which questions get the answer-writing call (fewer calls = cheaper)")
     p.add_argument("--only", nargs="*", help="question ids to run")
+    p.add_argument("--questions", default=str(QUESTIONS), help="question file")
     p.add_argument("--parallel", type=int, default=3)
     p.add_argument("--db", default=str(DEFAULT_DB))
+    p.add_argument("--schema", choices=["full", "bare"], default="full",
+                   help="bare = no sample values or notes (ablation)")
+    p.add_argument("--set-name", default="main", help="name of this run set inside the output file")
+    p.add_argument("--label", default=None, help="human label for this run set")
     p.add_argument("--out", default=str(ROOT / "web" / "data" / "runs.json"))
     args = p.parse_args(argv)
 
-    qs = load_questions()
+    qs = load_questions(Path(args.questions))
     if args.only:
         qs = [q for q in qs if q["id"] in set(args.only)]
     provider = make_provider(args.provider)
     db_path = Path(args.db)
-    schema = schema_summary(str(db_path))
+    schema = schema_summary(str(db_path), samples=args.schema == "full")
 
     with ThreadPoolExecutor(max_workers=max(1, min(args.parallel, 3))) as pool:
         futures = [pool.submit(evaluate_one, q, provider, db_path, schema, args.sql_model,
-                               args.answer_model, not args.no_answer) for q in qs]
+                               args.answer_model,
+                               {"all": True, "none": False, "retried": "retried"}[args.answers])
+                   for q in qs]
         runs = []
         for q, f in zip(qs, futures):
             r = f.result()
             runs.append(r)
-            mark = "ok  " if r["correct"] else "FAIL"
+            mark = {True: "ok  ", False: "FAIL", None: "rec "}[r["correct"]]
             print(f"{mark} {r['id']} attempts={r['n_attempts']} {r['question']}", flush=True)
 
     summary = summarize(runs)
     provider_label = {"cli": "ClaudeCLIProvider (Claude Code CLI, headless `claude -p`)",
                       "anthropic": "AnthropicProvider (anthropic Python SDK)",
                       "fake": "FakeProvider (gold SQL echo, smoke test only)"}[args.provider]
-    out = {
+    entry = {
+        "name": args.set_name,
+        "label": args.label or f"{resolve_model(args.sql_model)}, {args.schema} schema",
         "meta": {
             "recorded": dt.date.today().isoformat(),
             "provider": provider_label,
             "cli_version": _cli_version() if args.provider == "cli" else None,
             "sql_model": resolve_model(args.sql_model),
-            "answer_model": None if args.no_answer else resolve_model(args.answer_model),
+            "answer_model": None if args.answers == "none" else resolve_model(args.answer_model),
+            "answers_written_for": args.answers,
             "max_attempts": MAX_ATTEMPTS,
             "max_rows": DEFAULT_MAX_ROWS,
             "database": db_path.name,
             "n_questions": len(runs),
+            "schema": args.schema,
         },
         "summary": summary,
         "runs": runs,
     }
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
+    write_set(Path(args.out), entry)
     s = summary
-    print(f"\nexecution accuracy {s['overall']['correct']}/{s['overall']['n']} "
-          f"({s['overall']['accuracy']:.1%}); strict {s['overall_strict']['accuracy']:.1%}")
-    for d, v in s["by_difficulty"].items():
-        print(f"  {d:6s} {v['correct']}/{v['n']}")
+    if s["overall"]["n"]:
+        print(f"\nexecution accuracy {s['overall']['correct']}/{s['overall']['n']} "
+              f"({s['overall']['accuracy']:.1%}); strict {s['overall_strict']['accuracy']:.1%}")
+        for d, v in s["by_difficulty"].items():
+            print(f"  {d:6s} {v['correct']}/{v['n']}")
     print(f"needed retry: {s['needed_retry']}, of which correct: {s['retry_then_correct']}")
     print(f"cost: ${s['total_cost_usd']}  -> {args.out}")
 
