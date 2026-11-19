@@ -8,6 +8,11 @@
   // Read-only guard (port of guard.py; tested against tests/guard_cases.json)
   // ------------------------------------------------------------------
   var DEFAULT_MAX_ROWS = 200;
+  var EVAL_MAX_ROWS = 100000;
+  var WS = "[ \\t\\n\\f\\r]", ID_CHAR = "A-Za-z0-9_$\\u0080-\\uffff";
+  function word(kw) { return "(?<![" + ID_CHAR + "])" + kw + "(?![" + ID_CHAR + "])"; }
+  function asciiUpper(s) { return s.replace(/[a-z]/g, function (ch) { return ch.toUpperCase(); }); }
+  function rstripWs(s) { return s.replace(/[ \t\n\f\r]+$/, ""); }
   var FORBIDDEN = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "ATTACH",
     "DETACH", "PRAGMA", "VACUUM", "REINDEX", "ANALYZE", "BEGIN", "COMMIT",
     "ROLLBACK", "SAVEPOINT", "RELEASE", "TRUNCATE", "GRANT", "LOAD_EXTENSION"];
@@ -55,7 +60,8 @@
   }
 
   function topLevelLimit(masked) {
-    var re = /\(|\)|\bLIMIT\b/gi, m, depth = 0, last = null;
+    var re = new RegExp("\\(|\\)|" + word("LIMIT"), "g"), m, depth = 0, last = null;
+    masked = asciiUpper(masked);
     while ((m = re.exec(masked)) !== null) {
       if (m[0] === "(") depth += 1;
       else if (m[0] === ")") depth -= 1;
@@ -66,24 +72,24 @@
 
   function checkSql(sql, maxRows) {
     if (maxRows === undefined) maxRows = DEFAULT_MAX_ROWS;
-    if (sql === null || sql === undefined || !String(sql).trim()) throw GuardError("empty query");
+    if (sql === null || sql === undefined || !String(sql).replace(/[ \t\n\f\r]/g, "")) throw GuardError("empty query");
     sql = String(sql);
     var masked = maskSql(sql);
-    var stripped = masked.replace(/\s+$/, "");
-    while (stripped.endsWith(";")) stripped = stripped.slice(0, -1).replace(/\s+$/, "");
+    var stripped = rstripWs(masked);
+    while (stripped.endsWith(";")) stripped = rstripWs(stripped.slice(0, -1));
     if (stripped.indexOf(";") !== -1) throw GuardError("only one statement is allowed");
     var body = sql.slice(0, stripped.length);
     masked = stripped;
 
-    var first = /^\s*([A-Za-z]+)/.exec(masked);
+    var first = /^[ \t\n\f\r]*([A-Za-z]+)/.exec(masked);
     if (!first || ["SELECT", "WITH"].indexOf(first[1].toUpperCase()) === -1) {
       throw GuardError("only SELECT queries are allowed (must start with SELECT or WITH)");
     }
-    var upper = masked.toUpperCase();
+    var upper = asciiUpper(masked);
     for (var f = 0; f < FORBIDDEN.length; f++) {
-      if (new RegExp("\\b" + FORBIDDEN[f] + "\\b").test(upper)) throw GuardError("forbidden keyword: " + FORBIDDEN[f]);
+      if (new RegExp(word(FORBIDDEN[f])).test(upper)) throw GuardError("forbidden keyword: " + FORBIDDEN[f]);
     }
-    if (/\bREPLACE\s+INTO\b/.test(upper)) throw GuardError("forbidden keyword: REPLACE");
+    if (new RegExp(word("REPLACE" + WS + "+INTO")).test(upper)) throw GuardError("forbidden keyword: REPLACE");
     if ((masked.match(/\(/g) || []).length !== (masked.match(/\)/g) || []).length) {
       throw GuardError("unbalanced parentheses");
     }
@@ -91,11 +97,11 @@
     var limit = topLevelLimit(masked);
     if (limit === null) return { sql: body + "\nLIMIT " + maxRows, limitAdded: true, limitCapped: false };
     var tail = masked.slice(limit.end);
-    var num = /^\s*(\d+)\s*(?:$|OFFSET\b)/i.exec(tail);
+    var num = new RegExp("^" + WS + "*([0-9]+)" + WS + "*(?:$|" + word("OFFSET") + ")").exec(asciiUpper(tail));
     if (num) {
       var value = parseInt(num[1], 10);
       if (value <= maxRows) return { sql: body, limitAdded: false, limitCapped: false };
-      var start = limit.end + /^\s*/.exec(tail)[0].length;
+      var start = limit.end + /^[ \t\n\f\r]*/.exec(tail)[0].length;
       var end = start + num[1].length;
       return { sql: body.slice(0, start) + String(maxRows) + body.slice(end), limitAdded: false, limitCapped: true };
     }
@@ -105,12 +111,33 @@
   // ------------------------------------------------------------------
   // Execution accuracy (port of scoring.py)
   // ------------------------------------------------------------------
+  // Python round(x, 2): round the exact binary64 value, ties to even.
+  // Multiplying a double by 100 first loses information near midpoints.
+  function round2(v) {
+    if (!Number.isFinite(v) || v === 0 || Math.abs(v) >= 1e16) return v + 0;
+    var bits = new DataView(new ArrayBuffer(8));
+    bits.setFloat64(0, Math.abs(v));
+    var hi = bits.getUint32(0), lo = bits.getUint32(4);
+    var exponent = (hi >>> 20) & 2047;
+    var mantissa = (BigInt(hi & 1048575) << 32n) | BigInt(lo);
+    if (exponent) mantissa |= 1n << 52n;
+    var shift = (exponent || 1) - 1023 - 52;
+    var numerator = mantissa * 100n, cents;
+    if (shift >= 0) cents = numerator << BigInt(shift);
+    else {
+      var denominator = 1n << BigInt(-shift);
+      cents = numerator / denominator;
+      var twiceRemainder = 2n * (numerator % denominator);
+      if (twiceRemainder > denominator || (twiceRemainder === denominator && cents % 2n)) cents += 1n;
+    }
+    return Number((v < 0 ? "-" : "") + cents.toString() + "e-2") + 0;
+  }
   function norm(v) {
     if (v === null || v === undefined) return null;
-    if (typeof v === "number") return Math.round(v * 100) / 100 + 0;
+    if (typeof v === "number") return round2(v);
     if (typeof v === "boolean") return v ? 1 : 0;
     var s = String(v).trim();
-    if (s !== "" && /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s)) return Math.round(parseFloat(s) * 100) / 100 + 0;
+    if (s !== "" && /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(s)) return round2(Number(s));
     return s;
   }
   function key(v) { return v === null ? "\u0000null" : (typeof v) + ":" + String(v); }
@@ -181,7 +208,11 @@
     })(0, []);
     return found;
   }
-  function resultsMatch(goldRows, predRows, ordered, strict) {
+  function resultsMatch(goldRows, predRows, ordered, strict, goldNcols, predNcols) {
+    if (!goldRows.length && !predRows.length) {
+      if (goldNcols === undefined || predNcols === undefined) return true;
+      return strict ? goldNcols === predNcols : predNcols >= Math.ceil(goldNcols / 2);
+    }
     var g = goldRows.map(function (r) { return r.map(norm); });
     var p = predRows.map(function (r) { return r.map(norm); });
     var views = strict ? [g] : goldViews(g);
@@ -233,41 +264,62 @@
 
   function startWorker() {
     var url = URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" }));
-    worker = new Worker(url);
-    worker.onmessage = function (e) {
+    var owner = new Worker(url);
+    worker = owner;
+    URL.revokeObjectURL(url);
+    owner.onmessage = function (e) {
       var p = pending[e.data.id];
-      if (!p) return;
+      if (!p || p.owner !== owner || owner !== worker) return;
       delete pending[e.data.id];
       clearTimeout(p.timer);
       if (e.data.ok) p.resolve(e.data); else p.reject(new Error(e.data.error));
     };
+    owner.onerror = function () { restartWorker(owner, new Error("database worker failed")); };
     // after a restart (query time limit), reopen every database already fetched
-    Object.keys(dbBufs).forEach(function (name) { dbReady[name] = openDb(name); });
+    Object.keys(dbBufs).forEach(function (name) { trackReady(name, openDb(name)); });
+  }
+
+  function trackReady(name, promise) {
+    dbReady[name] = promise;
+    promise.catch(function () { if (dbReady[name] === promise) delete dbReady[name]; });
+    return promise;
+  }
+
+  function restartWorker(owner, error) {
+    if (owner !== worker) return;
+    owner.terminate();
+    worker = null;
+    Object.keys(pending).forEach(function (id) {
+      var p = pending[id];
+      if (p.owner !== owner) return;
+      delete pending[id];
+      clearTimeout(p.timer);
+      p.reject(error);
+    });
+    dbReady = {};
+    startWorker();
   }
 
   function ensureDb(name) {
     if (!dbReady[name]) {
-      dbReady[name] = fetch("data/" + name).then(function (r) {
+      trackReady(name, fetch("data/" + name).then(function (r) {
         if (!r.ok) throw new Error(name + " " + r.status);
         return r.arrayBuffer();
-      }).then(function (buf) { dbBufs[name] = buf; return openDb(name); });
-      dbReady[name].catch(function () { delete dbReady[name]; });
+      }).then(function (buf) { dbBufs[name] = buf; return openDb(name); }));
     }
     return dbReady[name];
   }
 
   function send(msg, timeoutMs) {
     return new Promise(function (resolve, reject) {
-      var id = nextId++;
+      var id = nextId++, owner = worker;
       msg.id = id;
       var timer = setTimeout(function () {
-        delete pending[id];
-        worker.terminate();
-        reject(new Error("query stopped after " + Math.round(timeoutMs / 1000) + " s time limit"));
-        startWorker();
+        if (!pending[id] || pending[id].owner !== owner) return;
+        restartWorker(owner, new Error("query stopped after " + Math.round(timeoutMs / 1000) + " s time limit"));
       }, timeoutMs);
-      pending[id] = { resolve: resolve, reject: reject, timer: timer };
-      worker.postMessage(msg);
+      pending[id] = { resolve: resolve, reject: reject, timer: timer, owner: owner };
+      owner.postMessage(msg);
     });
   }
 
@@ -283,6 +335,19 @@
     return execSql(g.sql, db).then(function (res) {
       res.guard = g;
       res.truncated = (g.limitAdded || g.limitCapped) && res.rows.length >= DEFAULT_MAX_ROWS;
+      return res;
+    });
+  }
+
+  // Scoring needs complete answers, independent of the interactive 200-row cap.
+  // One extra row proves whether the evaluation resource limit was exceeded.
+  function runComparison(sql, db) {
+    var g = checkSql(sql, EVAL_MAX_ROWS + 1);
+    return execSql(g.sql, db).then(function (res) {
+      res.guard = g;
+      res.truncated = res.rows.length > EVAL_MAX_ROWS;
+      res.rowLimit = EVAL_MAX_ROWS;
+      res.rows = res.rows.slice(0, EVAL_MAX_ROWS);
       return res;
     });
   }
@@ -327,7 +392,7 @@
     }));
     target.appendChild(el("table", { class: "result" }, [thead, tbody]));
     var meta = res.rows.length + (res.rows.length === 1 ? " row" : " rows");
-    if (res.truncated) meta += " (stopped at the " + DEFAULT_MAX_ROWS + "-row limit)";
+    if (res.truncated) meta += " (stopped at the " + (res.rowLimit || DEFAULT_MAX_ROWS) + "-row limit)";
     if (res.rows.length > shown.length) meta += ", first " + shown.length + " shown";
     if (res.ms !== undefined) meta += ", " + res.ms + " ms in your browser";
     if (note) meta += ". " + note;
@@ -343,7 +408,7 @@
     var i = 0;
     return new Promise(function (resolve) {
       (function tick() {
-        if (token.cancelled) { node.textContent = text; return resolve(); }
+        if (token.cancelled) return resolve();
         i = Math.min(text.length, i + step);
         node.textContent = text.slice(0, i);
         if (i >= text.length) return resolve();
@@ -401,7 +466,7 @@
       chain = chain.then(function () {
         if (token.cancelled) return;
         var sqlNode = el("pre", { class: "sql" });
-        var head = el("div", { class: "attempt-head" }, [el("strong", { text: "Attempt " + a.n }),
+        var head = el("div", { class: "attempt-head" }, [el("strong", { text: "Recorded attempt " + a.n }),
           el("span", { text: (a.model || "") + (a.latency_ms ? ", " + (a.latency_ms / 1000).toFixed(1) + " s" : "") })]);
         var li = el("li", { class: "attempt" }, [head, sqlNode]);
         list.appendChild(li);
@@ -429,10 +494,13 @@
       var goldBox = $("r-gold");
       goldBox.hidden = !run.gold_sql;
       $("r-gold-sql").textContent = run.gold_sql || "";
-      var predP = run.final_sql ? runGuarded(run.final_sql, dbName) : Promise.resolve(null);
-      var goldP = run.gold_sql ? runGuarded(run.gold_sql, dbName) : Promise.resolve(null);
+      var predP = run.ok && run.final_sql ? runComparison(run.model_sql || run.final_sql, dbName) : Promise.resolve(null);
+      var goldP = run.gold_sql ? runComparison(run.gold_sql, dbName) : Promise.resolve(null);
       return Promise.all([predP, goldP]).then(function (rs) {
+        if (token.cancelled) return;
         var pred = rs[0], gold = rs[1];
+        $("r-sql").textContent = pred ? pred.guard.sql : "(no accepted query)";
+        if (gold) $("r-gold-sql").textContent = gold.guard.sql;
         if (pred) renderTable(tableTarget, pred); else tableTarget.appendChild(el("p", { class: "result-meta", text: "No query ran." }));
         if (!gold) {
           verdict.appendChild(el("span", { class: "tag retry", text: "Demo prompt, not scored" }));
@@ -440,15 +508,21 @@
           return;
         }
         renderTable(goldTarget, gold);
-        var live = pred ? resultsMatch(gold.rows, pred.rows, run.ordered, false) : false;
+        if (gold.truncated || (pred && pred.truncated)) {
+          verdict.appendChild(el("span", { class: "tag retry", text: "Inconclusive" }));
+          verdict.appendChild(document.createTextNode("Result exceeds the " + EVAL_MAX_ROWS + "-row comparison limit."));
+          return;
+        }
+        var live = pred ? resultsMatch(gold.rows, pred.rows, run.ordered, false, gold.columns.length, pred.columns.length) : false;
         verdict.appendChild(el("span", { class: "tag " + (live ? "ok" : "err"), text: live ? "Matches gold" : "Does not match gold" }));
         var txt = "Checked live against the hand-written gold query just now";
         if (live !== run.correct) txt += " (the recorded score said " + (run.correct ? "correct" : "wrong") + ")";
         verdict.appendChild(document.createTextNode(txt + "."));
       }).catch(function (err) {
+        if (token.cancelled) return;
         verdict.appendChild(el("span", { class: "err-text", text: "Could not run the query here: " + err.message }));
       });
-    }).then(function () { btn.disabled = false; });
+    }).then(function () { if (!token.cancelled) btn.disabled = false; });
   }
 
   function setOrder() {
