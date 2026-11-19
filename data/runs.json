@@ -3225,6 +3225,1654 @@
      "cost_usd": 0.051684
     }
    ]
+  },
+  {
+   "name": "disguised-sonnet",
+   "label": "Sonnet 5.5 writes SQL, disguised Chinook (20 harder questions)",
+   "meta": {
+    "recorded": "2026-11-19",
+    "provider": "ClaudeCLIProvider (Claude Code CLI, headless `claude -p`)",
+    "cli_version": "2.1.328 (Claude Code)",
+    "sql_model": "claude-sonnet-5-5",
+    "answer_model": "claude-haiku-5-5",
+    "answers_written_for": "retried",
+    "max_attempts": 3,
+    "max_rows": 200,
+    "database": "medialib.sqlite",
+    "suite": "disguised",
+    "n_questions": 20,
+    "schema": "full"
+   },
+   "summary": {
+    "overall": {
+     "n": 20,
+     "correct": 19,
+     "accuracy": 0.95
+    },
+    "overall_strict": {
+     "n": 20,
+     "correct": 15,
+     "accuracy": 0.75
+    },
+    "by_difficulty": {
+     "hard": {
+      "n": 20,
+      "correct": 19,
+      "accuracy": 0.95
+     }
+    },
+    "by_type": {
+     "value": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "hidden-value": {
+      "n": 3,
+      "correct": 2,
+      "accuracy": 0.667
+     },
+     "multi-join": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "window": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "date-range": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "ties": {
+      "n": 2,
+      "correct": 2,
+      "accuracy": 1.0
+     },
+     "null": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     }
+    },
+    "first_attempt_ok": 18,
+    "needed_retry": 2,
+    "retry_then_correct": 1,
+    "wrong_without_retry": 0,
+    "retry_ids": [
+     "x05",
+     "x06"
+    ],
+    "failed_ids": [
+     "x06"
+    ],
+    "error_kinds": {
+     "empty": 3
+    },
+    "sql_calls": 23,
+    "total_cost_usd": 0.5637,
+    "unscored": 0
+   },
+   "runs": [
+    {
+     "id": "x01",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match",
+      "date"
+     ],
+     "question": "How many checkouts were billed to the United States in 2020?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM checkout WHERE bill_nation = 'US' AND checked_out_at >= '2020-01-01' AND checked_out_at < '2021-01-01'",
+     "gold_row_count": 1,
+     "note": "Stored as 'US' (shown in the sample values), not 'USA' or 'United States'.",
+     "final_sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE bill_nation = 'US'\n  AND strftime('%Y', checked_out_at) = '2020';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE bill_nation = 'US'\n  AND strftime('%Y', checked_out_at) = '2020';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023852,
+       "latency_ms": 3340.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023852
+    },
+    {
+     "id": "x02",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "What is the total amount spent by members whose home country is Brazil?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(k.amount) FROM checkout k JOIN member m ON m.member_id = k.member_id WHERE m.nation = 'Brasil'",
+     "gold_row_count": 1,
+     "note": "Stored as 'Brasil' (shown in the sample values).",
+     "final_sql": "SELECT SUM(c.amount) AS total_amount\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE m.nation = 'Brasil';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT SUM(c.amount) AS total_amount\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE m.nation = 'Brasil';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023448,
+       "latency_ms": 3259.4
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023448
+    },
+    {
+     "id": "x03",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match"
+     ],
+     "question": "Which staff members work in the IT team? Give their first and last names.",
+     "ordered": false,
+     "gold_sql": "SELECT given_name, family_name FROM staff WHERE role_title IN ('Systems Lead', 'Systems Technician')",
+     "gold_row_count": 3,
+     "note": "The roles are 'Systems Lead' and 'Systems Technician' (all role values are in the schema summary); nothing says 'IT'.",
+     "final_sql": "SELECT given_name, family_name\nFROM staff\nWHERE role_title IN ('Systems Lead', 'Systems Technician');",
+     "ok": true,
+     "row_count": 3,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT given_name, family_name\nFROM staff\nWHERE role_title IN ('Systems Lead', 'Systems Technician');",
+       "error": null,
+       "error_kind": null,
+       "row_count": 3,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.02323,
+       "latency_ms": 3387.9
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.02323
+    },
+    {
+     "id": "x04",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "How many catalog items are in the hip hop / rap style?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM catalog_item i JOIN style s ON s.style_id = i.style_id WHERE s.style_label = 'Urban / Rap'",
+     "gold_row_count": 1,
+     "note": "Stored as 'Urban / Rap', which the schema summary does not show; LIKE '%hip%hop%' finds nothing.",
+     "final_sql": "SELECT COUNT(*) AS item_count\nFROM catalog_item c\nJOIN style s ON s.style_id = c.style_id\nWHERE s.style_label LIKE '%Hip%' OR s.style_label LIKE '%Rap%';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS item_count\nFROM catalog_item c\nJOIN style s ON s.style_id = c.style_id\nWHERE s.style_label LIKE '%Hip%' OR s.style_label LIKE '%Rap%';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.025072,
+       "latency_ms": 4296.5
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.025072
+    },
+    {
+     "id": "x05",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "aggregate"
+     ],
+     "question": "How much revenue came from checkouts billed to the United Kingdom?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(amount) FROM checkout WHERE bill_nation = 'GB'",
+     "gold_row_count": 1,
+     "note": "Stored as 'GB', not shown in the summary (only the 3 most common nations are).",
+     "final_sql": "SELECT SUM(amount) AS revenue\nFROM checkout\nWHERE UPPER(TRIM(bill_nation)) IN ('UNITED KINGDOM', 'UK', 'U.K.', 'GB', 'GBR', 'GREAT BRITAIN', 'ENGLAND', 'BRITAIN');",
+     "ok": true,
+     "row_count": 1,
+     "answer": "The United Kingdom brought in £8,464.50 in checkout revenue (the query summed the amount for all checkouts billed to the UK, UK variants, and related names). The result is a single total, so no rows were cut off.",
+     "answer_model": "claude-haiku-5-5",
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT SUM(amount) AS revenue\nFROM checkout\nWHERE bill_nation = 'United Kingdom';",
+       "error": "the query ran but returned a single row of NULL/0 values. This often means a filter value does not match how the data is stored (spelling, case, abbreviation, date format) or a join drops every row.",
+       "error_kind": "empty",
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023403999999999998,
+       "latency_ms": 2994.8
+      },
+      {
+       "n": 2,
+       "sql": "SELECT SUM(amount) AS revenue\nFROM checkout\nWHERE bill_nation = 'UK';",
+       "error": "the query ran but returned a single row of NULL/0 values. This often means a filter value does not match how the data is stored (spelling, case, abbreviation, date format) or a join drops every row.",
+       "error_kind": "empty",
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.024474,
+       "latency_ms": 3184.3
+      },
+      {
+       "n": 3,
+       "sql": "SELECT SUM(amount) AS revenue\nFROM checkout\nWHERE UPPER(TRIM(bill_nation)) IN ('UNITED KINGDOM', 'UK', 'U.K.', 'GB', 'GBR', 'GREAT BRITAIN', 'ENGLAND', 'BRITAIN');",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.027584,
+       "latency_ms": 5427.3
+      }
+     ],
+     "n_attempts": 3,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.075887
+    },
+    {
+     "id": "x06",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "How many catalog items are in the heavy metal style?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM catalog_item i JOIN style s ON s.style_id = i.style_id WHERE s.style_label = 'Metal (Classic)'",
+     "gold_row_count": 1,
+     "note": "Heavy metal is stored as 'Metal (Classic)'; a separate 'Metal' style also exists, so LIKE '%metal%' returns a wrong non-zero count and no retry fires.",
+     "final_sql": "SELECT COUNT(*) AS item_count\nFROM catalog_item ci\nJOIN style s ON s.style_id = ci.style_id\nWHERE s.style_label LIKE '%Metal%';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "402 catalog items are in styles whose label contains \"Metal,\" which may include more than just heavy metal.",
+     "answer_model": "claude-haiku-5-5",
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS item_count\nFROM catalog_item ci\nJOIN style s ON s.style_id = ci.style_id\nWHERE s.style_label LIKE '%Heavy%';",
+       "error": "the query ran but returned a single row of NULL/0 values. This often means a filter value does not match how the data is stored (spelling, case, abbreviation, date format) or a join drops every row.",
+       "error_kind": "empty",
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.027164,
+       "latency_ms": 5502.4
+      },
+      {
+       "n": 2,
+       "sql": "SELECT COUNT(*) AS item_count\nFROM catalog_item ci\nJOIN style s ON s.style_id = ci.style_id\nWHERE s.style_label LIKE '%Metal%';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.029088,
+       "latency_ms": 6259.3
+      }
+     ],
+     "n_attempts": 2,
+     "correct": false,
+     "correct_strict": false,
+     "cost_usd": 0.056739
+    },
+    {
+     "id": "x07",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "group-by",
+      "order"
+     ],
+     "question": "For each customer advisor, what is the total revenue from the members they look after? Show the advisor's name and the total, highest first.",
+     "ordered": true,
+     "gold_sql": "SELECT s.given_name, s.family_name, SUM(k.amount) AS revenue FROM staff s JOIN member m ON m.advisor_id = s.staff_id JOIN checkout k ON k.member_id = m.member_id GROUP BY s.staff_id ORDER BY revenue DESC",
+     "gold_row_count": 3,
+     "note": null,
+     "final_sql": "SELECT s.given_name || ' ' || s.family_name AS advisor_name,\n       SUM(c.amount) AS total_revenue\nFROM staff s\nJOIN member m ON m.advisor_id = s.staff_id\nJOIN checkout c ON c.member_id = m.member_id\nWHERE s.role_title = 'Customer Advisor'\nGROUP BY s.staff_id, s.given_name, s.family_name\nORDER BY total_revenue DESC;",
+     "ok": true,
+     "row_count": 3,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.given_name || ' ' || s.family_name AS advisor_name,\n       SUM(c.amount) AS total_revenue\nFROM staff s\nJOIN member m ON m.advisor_id = s.staff_id\nJOIN checkout c ON c.member_id = m.member_id\nWHERE s.role_title = 'Customer Advisor'\nGROUP BY s.staff_id, s.given_name, s.family_name\nORDER BY total_revenue DESC;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 3,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.024012000000000002,
+       "latency_ms": 3149.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.024012
+    },
+    {
+     "id": "x08",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "top-n",
+      "value-match",
+      "order"
+     ],
+     "question": "Which 5 creators earned the most revenue from checkouts billed outside the US and Canada? List them from highest to lowest.",
+     "ordered": true,
+     "gold_sql": "SELECT cr.creator_name, SUM(l.price_each * l.qty) AS revenue FROM checkout_line l JOIN checkout k ON k.checkout_id = l.checkout_id JOIN catalog_item i ON i.item_id = l.item_id JOIN collection c ON c.collection_id = i.collection_id JOIN creator cr ON cr.creator_id = c.creator_id WHERE k.bill_nation NOT IN ('US', 'Canada') GROUP BY cr.creator_id ORDER BY revenue DESC LIMIT 5",
+     "gold_row_count": 5,
+     "note": null,
+     "final_sql": "SELECT cr.creator_name, SUM(cl.price_each * cl.qty) AS revenue\nFROM checkout_line cl\nJOIN checkout c ON c.checkout_id = cl.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection co ON co.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = co.creator_id\nWHERE c.bill_nation NOT IN ('US', 'Canada')\nGROUP BY cr.creator_id, cr.creator_name\nORDER BY revenue DESC\nLIMIT 5;",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT cr.creator_name, SUM(cl.price_each * cl.qty) AS revenue\nFROM checkout_line cl\nJOIN checkout c ON c.checkout_id = cl.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection co ON co.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = co.creator_id\nWHERE c.bill_nation NOT IN ('US', 'Canada')\nGROUP BY cr.creator_id, cr.creator_name\nORDER BY revenue DESC\nLIMIT 5;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.025902,
+       "latency_ms": 4256.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.025902
+    },
+    {
+     "id": "x09",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "distinct"
+     ],
+     "question": "How many different members have bought at least one item from a collection by Iron Maiden?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(DISTINCT k.member_id) FROM checkout k JOIN checkout_line l ON l.checkout_id = k.checkout_id JOIN catalog_item i ON i.item_id = l.item_id JOIN collection c ON c.collection_id = i.collection_id JOIN creator cr ON cr.creator_id = c.creator_id WHERE cr.creator_name = 'Iron Maiden'",
+     "gold_row_count": 1,
+     "note": null,
+     "final_sql": "SELECT COUNT(DISTINCT c.member_id) AS member_count\nFROM checkout c\nJOIN checkout_line cl ON cl.checkout_id = c.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE cr.creator_name = 'Iron Maiden';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(DISTINCT c.member_id) AS member_count\nFROM checkout c\nJOIN checkout_line cl ON cl.checkout_id = c.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE cr.creator_name = 'Iron Maiden';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023982,
+       "latency_ms": 5078.4
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023982
+    },
+    {
+     "id": "x10",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "window",
+      "per-group-max",
+      "ties"
+     ],
+     "question": "For each home country, which member has spent the most? Show the country, the member's name and their total.",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT m.member_id, m.given_name, m.family_name, m.nation, SUM(k.amount) AS spent FROM member m JOIN checkout k ON k.member_id = m.member_id GROUP BY m.member_id), r AS (SELECT *, RANK() OVER (PARTITION BY nation ORDER BY spent DESC) AS rk FROM t) SELECT nation, given_name, family_name, spent FROM r WHERE rk = 1",
+     "gold_row_count": 26,
+     "note": "Three GB members tie for the top; all three must be kept.",
+     "final_sql": "WITH totals AS (\n  SELECT m.member_id,\n         m.given_name || ' ' || m.family_name AS member_name,\n         m.nation AS country,\n         SUM(c.amount) AS total_spent\n  FROM member m\n  JOIN checkout c ON c.member_id = m.member_id\n  GROUP BY m.member_id, m.given_name, m.family_name, m.nation\n),\nranked AS (\n  SELECT *, RANK() OVER (PARTITION BY country ORDER BY total_spent DESC) AS rnk\n  FROM totals\n)\nSELECT country, member_name, total_spent\nFROM ranked\nWHERE rnk = 1\nORDER BY country;",
+     "ok": true,
+     "row_count": 26,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH totals AS (\n  SELECT m.member_id,\n         m.given_name || ' ' || m.family_name AS member_name,\n         m.nation AS country,\n         SUM(c.amount) AS total_spent\n  FROM member m\n  JOIN checkout c ON c.member_id = m.member_id\n  GROUP BY m.member_id, m.given_name, m.family_name, m.nation\n),\nranked AS (\n  SELECT *, RANK() OVER (PARTITION BY country ORDER BY total_spent DESC) AS rnk\n  FROM totals\n)\nSELECT country, member_name, total_spent\nFROM ranked\nWHERE rnk = 1\nORDER BY country;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 26,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.025304,
+       "latency_ms": 3728.9
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.025304
+    },
+    {
+     "id": "x11",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "window",
+      "date",
+      "order"
+     ],
+     "question": "Show the revenue for each calendar year and a running total across the years, in year order.",
+     "ordered": true,
+     "gold_sql": "SELECT substr(checked_out_at, 1, 4) AS yr, SUM(amount) AS revenue, SUM(SUM(amount)) OVER (ORDER BY substr(checked_out_at, 1, 4)) AS running FROM checkout GROUP BY yr ORDER BY yr",
+     "gold_row_count": 6,
+     "note": null,
+     "final_sql": "WITH yearly AS (\n  SELECT strftime('%Y', checked_out_at) AS year, SUM(amount) AS revenue\n  FROM checkout\n  GROUP BY strftime('%Y', checked_out_at)\n)\nSELECT year,\n       revenue,\n       SUM(revenue) OVER (ORDER BY year) AS running_total\nFROM yearly\nORDER BY year;",
+     "ok": true,
+     "row_count": 6,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH yearly AS (\n  SELECT strftime('%Y', checked_out_at) AS year, SUM(amount) AS revenue\n  FROM checkout\n  GROUP BY strftime('%Y', checked_out_at)\n)\nSELECT year,\n       revenue,\n       SUM(revenue) OVER (ORDER BY year) AS running_total\nFROM yearly\nORDER BY year;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 6,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023702,
+       "latency_ms": 2796.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023702
+    },
+    {
+     "id": "x12",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "ranking"
+     ],
+     "question": "Which catalog item is the third longest? Give its title and its length in seconds.",
+     "ordered": false,
+     "gold_sql": "SELECT item_title, duration_sec FROM catalog_item ORDER BY duration_sec DESC LIMIT 1 OFFSET 2",
+     "gold_row_count": 1,
+     "note": "Lengths are stored in whole seconds (duration_sec), not milliseconds.",
+     "final_sql": "SELECT item_title, duration_sec\nFROM catalog_item\nORDER BY duration_sec DESC\nLIMIT 1 OFFSET 2;",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT item_title, duration_sec\nFROM catalog_item\nORDER BY duration_sec DESC\nLIMIT 1 OFFSET 2;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.024576,
+       "latency_ms": 3501.9
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.024576
+    },
+    {
+     "id": "x13",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "boundary"
+     ],
+     "question": "What was the total revenue in the first half of 2019, January to June?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(amount) FROM checkout WHERE checked_out_at >= '2019-01-01' AND checked_out_at < '2019-07-01'",
+     "gold_row_count": 1,
+     "note": "Timestamps carry a time of day (09:30), so BETWEEN '2019-01-01' AND '2019-06-30' drops the checkout on 30 June.",
+     "final_sql": "SELECT SUM(amount) AS total_revenue\nFROM checkout\nWHERE checked_out_at >= '2019-01-01 00:00:00'\n  AND checked_out_at < '2019-07-01 00:00:00';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT SUM(amount) AS total_revenue\nFROM checkout\nWHERE checked_out_at >= '2019-01-01 00:00:00'\n  AND checked_out_at < '2019-07-01 00:00:00';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023098,
+       "latency_ms": 2862.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023098
+    },
+    {
+     "id": "x14",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "boundary"
+     ],
+     "question": "How many checkouts happened in the third quarter of 2019?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM checkout WHERE checked_out_at >= '2019-07-01' AND checked_out_at < '2019-10-01'",
+     "gold_row_count": 1,
+     "note": "Two checkouts fall on 30 September at 09:30.",
+     "final_sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE checked_out_at >= '2019-07-01 00:00:00'\n  AND checked_out_at < '2019-10-01 00:00:00';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE checked_out_at >= '2019-07-01 00:00:00'\n  AND checked_out_at < '2019-10-01 00:00:00';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023106,
+       "latency_ms": 2749.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023106
+    },
+    {
+     "id": "x15",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "subquery"
+     ],
+     "question": "How many members made their very first checkout in 2017?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM (SELECT member_id, MIN(checked_out_at) AS first_at FROM checkout GROUP BY member_id) WHERE first_at >= '2017-01-01' AND first_at < '2018-01-01'",
+     "gold_row_count": 1,
+     "note": null,
+     "final_sql": "SELECT COUNT(*) AS member_count\nFROM (\n  SELECT member_id\n  FROM checkout\n  GROUP BY member_id\n  HAVING strftime('%Y', MIN(checked_out_at)) = '2017'\n);",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS member_count\nFROM (\n  SELECT member_id\n  FROM checkout\n  GROUP BY member_id\n  HAVING strftime('%Y', MIN(checked_out_at)) = '2017'\n);",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023139999999999997,
+       "latency_ms": 2549.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.02314
+    },
+    {
+     "id": "x16",
+     "difficulty": "hard",
+     "type": "ties",
+     "tags": [
+      "ties",
+      "date",
+      "join"
+     ],
+     "question": "Who was the top-spending member in 2019?",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT m.given_name, m.family_name, SUM(k.amount) AS spent FROM checkout k JOIN member m ON m.member_id = k.member_id WHERE k.checked_out_at >= '2019-01-01' AND k.checked_out_at < '2020-01-01' GROUP BY m.member_id) SELECT given_name, family_name FROM t WHERE spent = (SELECT MAX(spent) FROM t)",
+     "gold_row_count": 2,
+     "note": "Two members tie on 1856.25; LIMIT 1 keeps only one of them.",
+     "final_sql": "SELECT m.member_id, m.given_name, m.family_name, SUM(c.amount) AS total_spent\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE strftime('%Y', c.checked_out_at) = '2019'\nGROUP BY m.member_id, m.given_name, m.family_name\nHAVING SUM(c.amount) = (\n  SELECT MAX(t) FROM (\n    SELECT SUM(amount) AS t\n    FROM checkout\n    WHERE strftime('%Y', checked_out_at) = '2019'\n    GROUP BY member_id\n  )\n)",
+     "ok": true,
+     "row_count": 2,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT m.member_id, m.given_name, m.family_name, SUM(c.amount) AS total_spent\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE strftime('%Y', c.checked_out_at) = '2019'\nGROUP BY m.member_id, m.given_name, m.family_name\nHAVING SUM(c.amount) = (\n  SELECT MAX(t) FROM (\n    SELECT SUM(amount) AS t\n    FROM checkout\n    WHERE strftime('%Y', checked_out_at) = '2019'\n    GROUP BY member_id\n  )\n)",
+       "error": null,
+       "error_kind": null,
+       "row_count": 2,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.024448,
+       "latency_ms": 3403.9
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.024448
+    },
+    {
+     "id": "x17",
+     "difficulty": "hard",
+     "type": "ties",
+     "tags": [
+      "ties",
+      "join"
+     ],
+     "question": "Which shelf contains the most items? Give its id and title.",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT s.shelf_id, s.shelf_title, COUNT(*) AS n FROM shelf s JOIN shelf_item si ON si.shelf_id = s.shelf_id GROUP BY s.shelf_id) SELECT shelf_id, shelf_title FROM t WHERE n = (SELECT MAX(n) FROM t)",
+     "gold_row_count": 2,
+     "note": "Shelves 1 and 8 are both titled 'Music' and both hold 3290 items.",
+     "final_sql": "SELECT s.shelf_id, s.shelf_title\nFROM shelf s\nJOIN shelf_item si ON si.shelf_id = s.shelf_id\nGROUP BY s.shelf_id, s.shelf_title\nHAVING COUNT(*) = (\n  SELECT MAX(c) FROM (\n    SELECT COUNT(*) AS c FROM shelf_item GROUP BY shelf_id\n  )\n)",
+     "ok": true,
+     "row_count": 2,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.shelf_id, s.shelf_title\nFROM shelf s\nJOIN shelf_item si ON si.shelf_id = s.shelf_id\nGROUP BY s.shelf_id, s.shelf_title\nHAVING COUNT(*) = (\n  SELECT MAX(c) FROM (\n    SELECT COUNT(*) AS c FROM shelf_item GROUP BY shelf_id\n  )\n)",
+       "error": null,
+       "error_kind": null,
+       "row_count": 2,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.02379,
+       "latency_ms": 2930.1
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.02379
+    },
+    {
+     "id": "x18",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "value-match"
+     ],
+     "question": "How many members are not located in California?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM member WHERE province IS NULL OR province <> 'CA'",
+     "gold_row_count": 1,
+     "note": "29 members have no province; province <> 'CA' alone skips them and gives 27 instead of 56.",
+     "final_sql": "SELECT COUNT(*) AS member_count\nFROM member\nWHERE province IS NOT 'CA';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS member_count\nFROM member\nWHERE province IS NOT 'CA';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.024036,
+       "latency_ms": 3662.2
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.024036
+    },
+    {
+     "id": "x19",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "anti-join",
+      "self-join"
+     ],
+     "question": "Which staff members do not manage anyone? Give their first and last names.",
+     "ordered": false,
+     "gold_sql": "SELECT given_name, family_name FROM staff s WHERE NOT EXISTS (SELECT 1 FROM staff r WHERE r.manager_id = s.staff_id)",
+     "gold_row_count": 5,
+     "note": "staff_id NOT IN (SELECT manager_id FROM staff) returns nothing, because manager_id contains a NULL.",
+     "final_sql": "SELECT s.given_name, s.family_name\nFROM staff s\nWHERE NOT EXISTS (\n  SELECT 1 FROM staff m WHERE m.manager_id = s.staff_id\n);",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.given_name, s.family_name\nFROM staff s\nWHERE NOT EXISTS (\n  SELECT 1 FROM staff m WHERE m.manager_id = s.staff_id\n);",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023044,
+       "latency_ms": 2614.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.023044
+    },
+    {
+     "id": "x20",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "left-join",
+      "group-by"
+     ],
+     "question": "For each file format, how many catalog items have no credits listed? Include every format, even when the count is zero.",
+     "ordered": false,
+     "gold_sql": "SELECT f.format_label, COUNT(i.item_id) FROM file_format f LEFT JOIN catalog_item i ON i.format_id = f.format_id AND i.credits IS NULL GROUP BY f.format_id",
+     "gold_row_count": 5,
+     "note": "The 'aac' format has no uncredited items; an inner join drops that row.",
+     "final_sql": "SELECT f.format_id, f.format_label, COUNT(c.item_id) AS item_count\nFROM file_format f\nLEFT JOIN catalog_item c ON c.format_id = f.format_id AND c.credits IS NULL\nGROUP BY f.format_id, f.format_label",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT f.format_id, f.format_label, COUNT(c.item_id) AS item_count\nFROM file_format f\nLEFT JOIN catalog_item c ON c.format_id = f.format_id AND c.credits IS NULL\nGROUP BY f.format_id, f.format_label",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-sonnet-5-5",
+       "cost_usd": 0.023346,
+       "latency_ms": 2774.1
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.023346
+    }
+   ]
+  },
+  {
+   "name": "disguised-haiku",
+   "label": "Haiku 5.5 writes SQL, disguised Chinook (20 harder questions)",
+   "meta": {
+    "recorded": "2026-11-19",
+    "provider": "ClaudeCLIProvider (Claude Code CLI, headless `claude -p`)",
+    "cli_version": "2.1.328 (Claude Code)",
+    "sql_model": "claude-haiku-5-5",
+    "answer_model": "claude-haiku-5-5",
+    "answers_written_for": "retried",
+    "max_attempts": 3,
+    "max_rows": 200,
+    "database": "medialib.sqlite",
+    "suite": "disguised",
+    "n_questions": 20,
+    "schema": "full"
+   },
+   "summary": {
+    "overall": {
+     "n": 20,
+     "correct": 19,
+     "accuracy": 0.95
+    },
+    "overall_strict": {
+     "n": 20,
+     "correct": 16,
+     "accuracy": 0.8
+    },
+    "by_difficulty": {
+     "hard": {
+      "n": 20,
+      "correct": 19,
+      "accuracy": 0.95
+     }
+    },
+    "by_type": {
+     "value": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "hidden-value": {
+      "n": 3,
+      "correct": 2,
+      "accuracy": 0.667
+     },
+     "multi-join": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "window": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "date-range": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     },
+     "ties": {
+      "n": 2,
+      "correct": 2,
+      "accuracy": 1.0
+     },
+     "null": {
+      "n": 3,
+      "correct": 3,
+      "accuracy": 1.0
+     }
+    },
+    "first_attempt_ok": 18,
+    "needed_retry": 2,
+    "retry_then_correct": 1,
+    "wrong_without_retry": 0,
+    "retry_ids": [
+     "x05",
+     "x06"
+    ],
+    "failed_ids": [
+     "x06"
+    ],
+    "error_kinds": {
+     "empty": 2
+    },
+    "sql_calls": 22,
+    "total_cost_usd": 0.031,
+    "unscored": 0
+   },
+   "runs": [
+    {
+     "id": "x01",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match",
+      "date"
+     ],
+     "question": "How many checkouts were billed to the United States in 2020?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM checkout WHERE bill_nation = 'US' AND checked_out_at >= '2020-01-01' AND checked_out_at < '2021-01-01'",
+     "gold_row_count": 1,
+     "note": "Stored as 'US' (shown in the sample values), not 'USA' or 'United States'.",
+     "final_sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE bill_nation = 'US'\n  AND strftime('%Y', checked_out_at) = '2020';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE bill_nation = 'US'\n  AND strftime('%Y', checked_out_at) = '2020';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012153,
+       "latency_ms": 3233.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001215
+    },
+    {
+     "id": "x02",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "What is the total amount spent by members whose home country is Brazil?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(k.amount) FROM checkout k JOIN member m ON m.member_id = k.member_id WHERE m.nation = 'Brasil'",
+     "gold_row_count": 1,
+     "note": "Stored as 'Brasil' (shown in the sample values).",
+     "final_sql": "SELECT SUM(c.amount) AS total_spent\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE m.nation = 'Brasil';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT SUM(c.amount) AS total_spent\nFROM checkout c\nJOIN member m ON m.member_id = c.member_id\nWHERE m.nation = 'Brasil';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012455,
+       "latency_ms": 3457.2
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001246
+    },
+    {
+     "id": "x03",
+     "difficulty": "hard",
+     "type": "value",
+     "tags": [
+      "value-match"
+     ],
+     "question": "Which staff members work in the IT team? Give their first and last names.",
+     "ordered": false,
+     "gold_sql": "SELECT given_name, family_name FROM staff WHERE role_title IN ('Systems Lead', 'Systems Technician')",
+     "gold_row_count": 3,
+     "note": "The roles are 'Systems Lead' and 'Systems Technician' (all role values are in the schema summary); nothing says 'IT'.",
+     "final_sql": "SELECT given_name, family_name\nFROM staff\nWHERE role_title IN ('Systems Lead', 'Systems Technician');",
+     "ok": true,
+     "row_count": 3,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT given_name, family_name\nFROM staff\nWHERE role_title IN ('Systems Lead', 'Systems Technician');",
+       "error": null,
+       "error_kind": null,
+       "row_count": 3,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012330000000000002,
+       "latency_ms": 3259.2
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001233
+    },
+    {
+     "id": "x04",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "How many catalog items are in the hip hop / rap style?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM catalog_item i JOIN style s ON s.style_id = i.style_id WHERE s.style_label = 'Urban / Rap'",
+     "gold_row_count": 1,
+     "note": "Stored as 'Urban / Rap', which the schema summary does not show; LIKE '%hip%hop%' finds nothing.",
+     "final_sql": "SELECT COUNT(ci.item_id) AS item_count\nFROM catalog_item AS ci\nJOIN style AS s ON s.style_id = ci.style_id\nWHERE s.style_label LIKE '%hip hop%'\n   OR s.style_label LIKE '%rap%';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(ci.item_id) AS item_count\nFROM catalog_item AS ci\nJOIN style AS s ON s.style_id = ci.style_id\nWHERE s.style_label LIKE '%hip hop%'\n   OR s.style_label LIKE '%rap%';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0013419,
+       "latency_ms": 4192.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001342
+    },
+    {
+     "id": "x05",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "aggregate"
+     ],
+     "question": "How much revenue came from checkouts billed to the United Kingdom?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(amount) FROM checkout WHERE bill_nation = 'GB'",
+     "gold_row_count": 1,
+     "note": "Stored as 'GB', not shown in the summary (only the 3 most common nations are).",
+     "final_sql": "SELECT ROUND(SUM(c.amount), 2) AS uk_revenue\nFROM checkout AS c\nLEFT JOIN member AS m ON m.member_id = c.member_id\nWHERE UPPER(TRIM(COALESCE(c.bill_nation, m.nation))) IN ('UK', 'U.K.', 'GB', 'UNITED KINGDOM', 'GREAT BRITAIN', 'ENGLAND', 'SCOTLAND', 'WALES', 'NORTHERN IRELAND');",
+     "ok": true,
+     "row_count": 1,
+     "answer": "The United Kingdom checkouts brought in £8,464.50 in revenue. This total counts checkouts billed to any UK name variant, including England, Scotland, Wales and Northern Ireland.",
+     "answer_model": "claude-haiku-5-5",
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT ROUND(SUM(amount), 2) AS uk_revenue\nFROM checkout\nWHERE bill_nation IN ('United Kingdom', 'UK');",
+       "error": "the query ran but returned a single row of NULL/0 values. This often means a filter value does not match how the data is stored (spelling, case, abbreviation, date format) or a join drops every row.",
+       "error_kind": "empty",
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0013389,
+       "latency_ms": 4267.3
+      },
+      {
+       "n": 2,
+       "sql": "SELECT ROUND(SUM(c.amount), 2) AS uk_revenue\nFROM checkout AS c\nLEFT JOIN member AS m ON m.member_id = c.member_id\nWHERE UPPER(TRIM(COALESCE(c.bill_nation, m.nation))) IN ('UK', 'U.K.', 'GB', 'UNITED KINGDOM', 'GREAT BRITAIN', 'ENGLAND', 'SCOTLAND', 'WALES', 'NORTHERN IRELAND');",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0019361,
+       "latency_ms": 8978.8
+      }
+     ],
+     "n_attempts": 2,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.003711
+    },
+    {
+     "id": "x06",
+     "difficulty": "hard",
+     "type": "hidden-value",
+     "tags": [
+      "value-match",
+      "join"
+     ],
+     "question": "How many catalog items are in the heavy metal style?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM catalog_item i JOIN style s ON s.style_id = i.style_id WHERE s.style_label = 'Metal (Classic)'",
+     "gold_row_count": 1,
+     "note": "Heavy metal is stored as 'Metal (Classic)'; a separate 'Metal' style also exists, so LIKE '%metal%' returns a wrong non-zero count and no retry fires.",
+     "final_sql": "SELECT COUNT(*) AS heavy_metal_item_count\nFROM catalog_item AS ci\nJOIN style AS s ON s.style_id = ci.style_id\nWHERE LOWER(s.style_label) LIKE '%metal%';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "There are **402** catalog items in styles with \"metal\" in the name. That count may include related styles such as death metal or thrash metal, not only heavy metal.",
+     "answer_model": "claude-haiku-5-5",
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS heavy_metal_item_count\nFROM catalog_item AS ci\nJOIN style AS s ON s.style_id = ci.style_id\nWHERE LOWER(s.style_label) = 'heavy metal';",
+       "error": "the query ran but returned a single row of NULL/0 values. This often means a filter value does not match how the data is stored (spelling, case, abbreviation, date format) or a join drops every row.",
+       "error_kind": "empty",
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012842,
+       "latency_ms": 3725.2
+      },
+      {
+       "n": 2,
+       "sql": "SELECT COUNT(*) AS heavy_metal_item_count\nFROM catalog_item AS ci\nJOIN style AS s ON s.style_id = ci.style_id\nWHERE LOWER(s.style_label) LIKE '%metal%';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0017693,
+       "latency_ms": 7249.5
+      }
+     ],
+     "n_attempts": 2,
+     "correct": false,
+     "correct_strict": false,
+     "cost_usd": 0.003558
+    },
+    {
+     "id": "x07",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "group-by",
+      "order"
+     ],
+     "question": "For each customer advisor, what is the total revenue from the members they look after? Show the advisor's name and the total, highest first.",
+     "ordered": true,
+     "gold_sql": "SELECT s.given_name, s.family_name, SUM(k.amount) AS revenue FROM staff s JOIN member m ON m.advisor_id = s.staff_id JOIN checkout k ON k.member_id = m.member_id GROUP BY s.staff_id ORDER BY revenue DESC",
+     "gold_row_count": 3,
+     "note": null,
+     "final_sql": "SELECT s.given_name || ' ' || s.family_name AS advisor_name,\n       SUM(c.amount) AS total_revenue\nFROM staff s\nJOIN member m ON m.advisor_id = s.staff_id\nJOIN checkout c ON c.member_id = m.member_id\nWHERE s.role_title = 'Customer Advisor'\nGROUP BY s.staff_id, s.given_name, s.family_name\nORDER BY total_revenue DESC;",
+     "ok": true,
+     "row_count": 3,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.given_name || ' ' || s.family_name AS advisor_name,\n       SUM(c.amount) AS total_revenue\nFROM staff s\nJOIN member m ON m.advisor_id = s.staff_id\nJOIN checkout c ON c.member_id = m.member_id\nWHERE s.role_title = 'Customer Advisor'\nGROUP BY s.staff_id, s.given_name, s.family_name\nORDER BY total_revenue DESC;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 3,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0014092000000000002,
+       "latency_ms": 5438.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.001409
+    },
+    {
+     "id": "x08",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "top-n",
+      "value-match",
+      "order"
+     ],
+     "question": "Which 5 creators earned the most revenue from checkouts billed outside the US and Canada? List them from highest to lowest.",
+     "ordered": true,
+     "gold_sql": "SELECT cr.creator_name, SUM(l.price_each * l.qty) AS revenue FROM checkout_line l JOIN checkout k ON k.checkout_id = l.checkout_id JOIN catalog_item i ON i.item_id = l.item_id JOIN collection c ON c.collection_id = i.collection_id JOIN creator cr ON cr.creator_id = c.creator_id WHERE k.bill_nation NOT IN ('US', 'Canada') GROUP BY cr.creator_id ORDER BY revenue DESC LIMIT 5",
+     "gold_row_count": 5,
+     "note": null,
+     "final_sql": "SELECT cr.creator_name, SUM(cl.price_each * cl.qty) AS revenue\nFROM checkout_line cl\nJOIN checkout c ON c.checkout_id = cl.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE c.bill_nation NOT IN ('US', 'Canada')\nGROUP BY cr.creator_id, cr.creator_name\nORDER BY revenue DESC\nLIMIT 5;",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT cr.creator_name, SUM(cl.price_each * cl.qty) AS revenue\nFROM checkout_line cl\nJOIN checkout c ON c.checkout_id = cl.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE c.bill_nation NOT IN ('US', 'Canada')\nGROUP BY cr.creator_id, cr.creator_name\nORDER BY revenue DESC\nLIMIT 5;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0015574999999999999,
+       "latency_ms": 5231.6
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001557
+    },
+    {
+     "id": "x09",
+     "difficulty": "hard",
+     "type": "multi-join",
+     "tags": [
+      "join",
+      "distinct"
+     ],
+     "question": "How many different members have bought at least one item from a collection by Iron Maiden?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(DISTINCT k.member_id) FROM checkout k JOIN checkout_line l ON l.checkout_id = k.checkout_id JOIN catalog_item i ON i.item_id = l.item_id JOIN collection c ON c.collection_id = i.collection_id JOIN creator cr ON cr.creator_id = c.creator_id WHERE cr.creator_name = 'Iron Maiden'",
+     "gold_row_count": 1,
+     "note": null,
+     "final_sql": "SELECT COUNT(DISTINCT c.member_id) AS member_count\nFROM checkout c\nJOIN checkout_line cl ON cl.checkout_id = c.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE cr.creator_name = 'Iron Maiden';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(DISTINCT c.member_id) AS member_count\nFROM checkout c\nJOIN checkout_line cl ON cl.checkout_id = c.checkout_id\nJOIN catalog_item ci ON ci.item_id = cl.item_id\nJOIN collection col ON col.collection_id = ci.collection_id\nJOIN creator cr ON cr.creator_id = col.creator_id\nWHERE cr.creator_name = 'Iron Maiden';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0013605000000000002,
+       "latency_ms": 3839.4
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001361
+    },
+    {
+     "id": "x10",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "window",
+      "per-group-max",
+      "ties"
+     ],
+     "question": "For each home country, which member has spent the most? Show the country, the member's name and their total.",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT m.member_id, m.given_name, m.family_name, m.nation, SUM(k.amount) AS spent FROM member m JOIN checkout k ON k.member_id = m.member_id GROUP BY m.member_id), r AS (SELECT *, RANK() OVER (PARTITION BY nation ORDER BY spent DESC) AS rk FROM t) SELECT nation, given_name, family_name, spent FROM r WHERE rk = 1",
+     "gold_row_count": 26,
+     "note": "Three GB members tie for the top; all three must be kept.",
+     "final_sql": "WITH totals AS (\n  SELECT m.nation,\n         m.member_id,\n         m.given_name || ' ' || m.family_name AS member_name,\n         SUM(c.amount) AS total\n  FROM member m\n  JOIN checkout c ON c.member_id = m.member_id\n  WHERE m.nation IS NOT NULL\n  GROUP BY m.member_id\n),\nranked AS (\n  SELECT nation,\n         member_name,\n         total,\n         RANK() OVER (PARTITION BY nation ORDER BY total DESC) AS rnk\n  FROM totals\n)\nSELECT nation AS country,\n       member_name AS member,\n       total\nFROM ranked\nWHERE rnk = 1;",
+     "ok": true,
+     "row_count": 26,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH totals AS (\n  SELECT m.nation,\n         m.member_id,\n         m.given_name || ' ' || m.family_name AS member_name,\n         SUM(c.amount) AS total\n  FROM member m\n  JOIN checkout c ON c.member_id = m.member_id\n  WHERE m.nation IS NOT NULL\n  GROUP BY m.member_id\n),\nranked AS (\n  SELECT nation,\n         member_name,\n         total,\n         RANK() OVER (PARTITION BY nation ORDER BY total DESC) AS rnk\n  FROM totals\n)\nSELECT nation AS country,\n       member_name AS member,\n       total\nFROM ranked\nWHERE rnk = 1;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 26,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0014852,
+       "latency_ms": 5185.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.001485
+    },
+    {
+     "id": "x11",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "window",
+      "date",
+      "order"
+     ],
+     "question": "Show the revenue for each calendar year and a running total across the years, in year order.",
+     "ordered": true,
+     "gold_sql": "SELECT substr(checked_out_at, 1, 4) AS yr, SUM(amount) AS revenue, SUM(SUM(amount)) OVER (ORDER BY substr(checked_out_at, 1, 4)) AS running FROM checkout GROUP BY yr ORDER BY yr",
+     "gold_row_count": 6,
+     "note": null,
+     "final_sql": "WITH yearly AS (\n  SELECT strftime('%Y', checked_out_at) AS year,\n         SUM(amount) AS revenue\n  FROM checkout\n  GROUP BY strftime('%Y', checked_out_at)\n)\nSELECT year,\n       revenue,\n       SUM(revenue) OVER (ORDER BY year ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total\nFROM yearly\nORDER BY year;",
+     "ok": true,
+     "row_count": 6,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH yearly AS (\n  SELECT strftime('%Y', checked_out_at) AS year,\n         SUM(amount) AS revenue\n  FROM checkout\n  GROUP BY strftime('%Y', checked_out_at)\n)\nSELECT year,\n       revenue,\n       SUM(revenue) OVER (ORDER BY year ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total\nFROM yearly\nORDER BY year;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 6,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012845999999999999,
+       "latency_ms": 3469.5
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001285
+    },
+    {
+     "id": "x12",
+     "difficulty": "hard",
+     "type": "window",
+     "tags": [
+      "ranking"
+     ],
+     "question": "Which catalog item is the third longest? Give its title and its length in seconds.",
+     "ordered": false,
+     "gold_sql": "SELECT item_title, duration_sec FROM catalog_item ORDER BY duration_sec DESC LIMIT 1 OFFSET 2",
+     "gold_row_count": 1,
+     "note": "Lengths are stored in whole seconds (duration_sec), not milliseconds.",
+     "final_sql": "WITH ranked AS (\n  SELECT item_title,\n         duration_sec,\n         DENSE_RANK() OVER (ORDER BY duration_sec DESC) AS rnk\n  FROM catalog_item\n)\nSELECT item_title, duration_sec\nFROM ranked\nWHERE rnk = 3;",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH ranked AS (\n  SELECT item_title,\n         duration_sec,\n         DENSE_RANK() OVER (ORDER BY duration_sec DESC) AS rnk\n  FROM catalog_item\n)\nSELECT item_title, duration_sec\nFROM ranked\nWHERE rnk = 3;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0013125000000000003,
+       "latency_ms": 3671.7
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001313
+    },
+    {
+     "id": "x13",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "boundary"
+     ],
+     "question": "What was the total revenue in the first half of 2019, January to June?",
+     "ordered": false,
+     "gold_sql": "SELECT SUM(amount) FROM checkout WHERE checked_out_at >= '2019-01-01' AND checked_out_at < '2019-07-01'",
+     "gold_row_count": 1,
+     "note": "Timestamps carry a time of day (09:30), so BETWEEN '2019-01-01' AND '2019-06-30' drops the checkout on 30 June.",
+     "final_sql": "SELECT SUM(amount) AS total_revenue\nFROM checkout\nWHERE checked_out_at >= '2019-01-01 00:00:00'\n  AND checked_out_at < '2019-07-01 00:00:00';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT SUM(amount) AS total_revenue\nFROM checkout\nWHERE checked_out_at >= '2019-01-01 00:00:00'\n  AND checked_out_at < '2019-07-01 00:00:00';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012555,
+       "latency_ms": 3306.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001256
+    },
+    {
+     "id": "x14",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "boundary"
+     ],
+     "question": "How many checkouts happened in the third quarter of 2019?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM checkout WHERE checked_out_at >= '2019-07-01' AND checked_out_at < '2019-10-01'",
+     "gold_row_count": 1,
+     "note": "Two checkouts fall on 30 September at 09:30.",
+     "final_sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE checked_out_at >= '2019-07-01 00:00:00'\n  AND checked_out_at < '2019-10-01 00:00:00';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS checkout_count\nFROM checkout\nWHERE checked_out_at >= '2019-07-01 00:00:00'\n  AND checked_out_at < '2019-10-01 00:00:00';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012078000000000002,
+       "latency_ms": 2713.2
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001208
+    },
+    {
+     "id": "x15",
+     "difficulty": "hard",
+     "type": "date-range",
+     "tags": [
+      "date",
+      "subquery"
+     ],
+     "question": "How many members made their very first checkout in 2017?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM (SELECT member_id, MIN(checked_out_at) AS first_at FROM checkout GROUP BY member_id) WHERE first_at >= '2017-01-01' AND first_at < '2018-01-01'",
+     "gold_row_count": 1,
+     "note": null,
+     "final_sql": "WITH first_checkout AS (\n    SELECT member_id, MIN(checked_out_at) AS first_at\n    FROM checkout\n    GROUP BY member_id\n)\nSELECT COUNT(*) AS member_count\nFROM first_checkout\nWHERE strftime('%Y', first_at) = '2017';",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH first_checkout AS (\n    SELECT member_id, MIN(checked_out_at) AS first_at\n    FROM checkout\n    GROUP BY member_id\n)\nSELECT COUNT(*) AS member_count\nFROM first_checkout\nWHERE strftime('%Y', first_at) = '2017';",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012714999999999998,
+       "latency_ms": 3224.4
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001271
+    },
+    {
+     "id": "x16",
+     "difficulty": "hard",
+     "type": "ties",
+     "tags": [
+      "ties",
+      "date",
+      "join"
+     ],
+     "question": "Who was the top-spending member in 2019?",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT m.given_name, m.family_name, SUM(k.amount) AS spent FROM checkout k JOIN member m ON m.member_id = k.member_id WHERE k.checked_out_at >= '2019-01-01' AND k.checked_out_at < '2020-01-01' GROUP BY m.member_id) SELECT given_name, family_name FROM t WHERE spent = (SELECT MAX(spent) FROM t)",
+     "gold_row_count": 2,
+     "note": "Two members tie on 1856.25; LIMIT 1 keeps only one of them.",
+     "final_sql": "WITH totals AS (\n  SELECT member_id, SUM(amount) AS total_spent\n  FROM checkout\n  WHERE strftime('%Y', checked_out_at) = '2019'\n  GROUP BY member_id\n)\nSELECT m.given_name || ' ' || m.family_name AS member_name\nFROM totals t\nJOIN member m ON m.member_id = t.member_id\nWHERE t.total_spent = (SELECT MAX(total_spent) FROM totals);",
+     "ok": true,
+     "row_count": 2,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "WITH totals AS (\n  SELECT member_id, SUM(amount) AS total_spent\n  FROM checkout\n  WHERE strftime('%Y', checked_out_at) = '2019'\n  GROUP BY member_id\n)\nSELECT m.given_name || ' ' || m.family_name AS member_name\nFROM totals t\nJOIN member m ON m.member_id = t.member_id\nWHERE t.total_spent = (SELECT MAX(total_spent) FROM totals);",
+       "error": null,
+       "error_kind": null,
+       "row_count": 2,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.001419,
+       "latency_ms": 4460.6
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": false,
+     "cost_usd": 0.001419
+    },
+    {
+     "id": "x17",
+     "difficulty": "hard",
+     "type": "ties",
+     "tags": [
+      "ties",
+      "join"
+     ],
+     "question": "Which shelf contains the most items? Give its id and title.",
+     "ordered": false,
+     "gold_sql": "WITH t AS (SELECT s.shelf_id, s.shelf_title, COUNT(*) AS n FROM shelf s JOIN shelf_item si ON si.shelf_id = s.shelf_id GROUP BY s.shelf_id) SELECT shelf_id, shelf_title FROM t WHERE n = (SELECT MAX(n) FROM t)",
+     "gold_row_count": 2,
+     "note": "Shelves 1 and 8 are both titled 'Music' and both hold 3290 items.",
+     "final_sql": "SELECT s.shelf_id, s.shelf_title\nFROM shelf s\nJOIN (\n    SELECT shelf_id, COUNT(*) AS item_count\n    FROM shelf_item\n    GROUP BY shelf_id\n) c ON c.shelf_id = s.shelf_id\nWHERE c.item_count = (\n    SELECT MAX(item_count)\n    FROM (\n        SELECT COUNT(*) AS item_count\n        FROM shelf_item\n        GROUP BY shelf_id\n    )\n);",
+     "ok": true,
+     "row_count": 2,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.shelf_id, s.shelf_title\nFROM shelf s\nJOIN (\n    SELECT shelf_id, COUNT(*) AS item_count\n    FROM shelf_item\n    GROUP BY shelf_id\n) c ON c.shelf_id = s.shelf_id\nWHERE c.item_count = (\n    SELECT MAX(item_count)\n    FROM (\n        SELECT COUNT(*) AS item_count\n        FROM shelf_item\n        GROUP BY shelf_id\n    )\n);",
+       "error": null,
+       "error_kind": null,
+       "row_count": 2,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012606,
+       "latency_ms": 2986.3
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001261
+    },
+    {
+     "id": "x18",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "value-match"
+     ],
+     "question": "How many members are not located in California?",
+     "ordered": false,
+     "gold_sql": "SELECT COUNT(*) FROM member WHERE province IS NULL OR province <> 'CA'",
+     "gold_row_count": 1,
+     "note": "29 members have no province; province <> 'CA' alone skips them and gives 27 instead of 56.",
+     "final_sql": "SELECT COUNT(*) AS member_count\nFROM member\nWHERE NOT (COALESCE(province, '') = 'CA' AND COALESCE(nation, '') = 'US');",
+     "ok": true,
+     "row_count": 1,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT COUNT(*) AS member_count\nFROM member\nWHERE NOT (COALESCE(province, '') = 'CA' AND COALESCE(nation, '') = 'US');",
+       "error": null,
+       "error_kind": null,
+       "row_count": 1,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012736,
+       "latency_ms": 3689.5
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001274
+    },
+    {
+     "id": "x19",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "anti-join",
+      "self-join"
+     ],
+     "question": "Which staff members do not manage anyone? Give their first and last names.",
+     "ordered": false,
+     "gold_sql": "SELECT given_name, family_name FROM staff s WHERE NOT EXISTS (SELECT 1 FROM staff r WHERE r.manager_id = s.staff_id)",
+     "gold_row_count": 5,
+     "note": "staff_id NOT IN (SELECT manager_id FROM staff) returns nothing, because manager_id contains a NULL.",
+     "final_sql": "SELECT s.given_name, s.family_name\nFROM staff s\nWHERE NOT EXISTS (\n    SELECT 1\n    FROM staff r\n    WHERE r.manager_id = s.staff_id\n);",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT s.given_name, s.family_name\nFROM staff s\nWHERE NOT EXISTS (\n    SELECT 1\n    FROM staff r\n    WHERE r.manager_id = s.staff_id\n);",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0012242,
+       "latency_ms": 3292.8
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001224
+    },
+    {
+     "id": "x20",
+     "difficulty": "hard",
+     "type": "null",
+     "tags": [
+      "null",
+      "left-join",
+      "group-by"
+     ],
+     "question": "For each file format, how many catalog items have no credits listed? Include every format, even when the count is zero.",
+     "ordered": false,
+     "gold_sql": "SELECT f.format_label, COUNT(i.item_id) FROM file_format f LEFT JOIN catalog_item i ON i.format_id = f.format_id AND i.credits IS NULL GROUP BY f.format_id",
+     "gold_row_count": 5,
+     "note": "The 'aac' format has no uncredited items; an inner join drops that row.",
+     "final_sql": "SELECT f.format_label,\n       COUNT(c.item_id) AS items_without_credits\nFROM file_format AS f\nLEFT JOIN catalog_item AS c\n       ON c.format_id = f.format_id\n      AND (c.credits IS NULL OR TRIM(c.credits) = '')\nGROUP BY f.format_id, f.format_label;",
+     "ok": true,
+     "row_count": 5,
+     "answer": "",
+     "answer_model": null,
+     "attempts": [
+      {
+       "n": 1,
+       "sql": "SELECT f.format_label,\n       COUNT(c.item_id) AS items_without_credits\nFROM file_format AS f\nLEFT JOIN catalog_item AS c\n       ON c.format_id = f.format_id\n      AND (c.credits IS NULL OR TRIM(c.credits) = '')\nGROUP BY f.format_id, f.format_label;",
+       "error": null,
+       "error_kind": null,
+       "row_count": 5,
+       "model": "claude-haiku-5-5",
+       "cost_usd": 0.0013662,
+       "latency_ms": 4413.0
+      }
+     ],
+     "n_attempts": 1,
+     "correct": true,
+     "correct_strict": true,
+     "cost_usd": 0.001366
+    }
+   ]
   }
  ]
 }
