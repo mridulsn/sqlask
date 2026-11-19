@@ -6,8 +6,8 @@ wrong) the error text and the failed SQL go back to the model for another try, u
 attempts. You get a short plain-English answer, the SQL that produced it, and the rows.
 
 Live demo (static, no server, no API key; to be published at `https://mridulsaravanan.com/sqlask/`).
-It replays recorded model runs step by step, re-executes every query in the browser with
-sql.js (on Chinook or the disguised copy), lets you run your own SQL through the same guard, and
+It plays back recorded attempts and statuses step by step, then verifies only the final SQL
+and gold query live with sql.js (on Chinook or the disguised copy). It also lets you run your own SQL through the same guard and
 shows both eval scoreboards. `index.html#run=disguised-haiku/x06` opens a specific run.
 
 ```
@@ -48,7 +48,7 @@ Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-uv run pytest                                  # offline, uses FakeProvider (64 tests)
+uv run pytest                                  # offline; Python and Node.js regressions
 
 uv run sqlask "How many invoices were billed to the UK?"
 uv run sqlask "Which artist has earned the most revenue?" --json
@@ -56,6 +56,8 @@ uv run sqlask "Which artist has earned the most revenue?" --json
 uv run sqlask-eval                             # full eval, writes web/data/runs.json
 uv run sqlask-eval --sql-model haiku --answers retried --set-name haiku
 uv run sqlask-eval --provider fake             # smoke test: echoes the gold SQL, no model calls
+uv run sqlask-rescore                          # recompute recordings offline, no model calls
+uv run sqlask-rescore --check                  # report outcome changes without writing
 
 uv run sqlask-disguise                         # rebuild web/data/medialib.sqlite from Chinook
 uv run sqlask-eval --suite disguised --sql-model sonnet --answers retried --set-name disguised-sonnet
@@ -70,7 +72,7 @@ Which model backend is used:
 | `ClaudeCLIProvider` | no key (default locally) | runs `claude -p` headless with MCP servers, hooks, built-in tools and session persistence all switched off, from an empty temp dir; replies cached on disk in `.cache/` |
 | `FakeProvider` | tests | scripted replies |
 
-Example output (recorded with the CLI provider):
+Example output (recorded model reply, with the executed SQL corrected by offline replay):
 
 ```
 $ uv run sqlask "How many invoices were billed to the UK?" --provider cli
@@ -79,7 +81,8 @@ $ uv run sqlask "How many invoices were billed to the UK?" --provider cli
 SQL:
 SELECT COUNT(*) AS InvoiceCount
 FROM Invoice
-WHERE BillingCountry = 'United Kingdom';
+WHERE BillingCountry = 'United Kingdom'
+LIMIT 200
 
 InvoiceCount
 21
@@ -131,6 +134,16 @@ rounded to 2 decimals and numeric strings like `'2011'` count as numbers. Column
 do not matter, and extra columns are allowed (asking "which artist" and getting
 `Name, Revenue` is fine). Two adjacent text columns in the gold result (FirstName, LastName) also
 match one `'First Last'` column. "Strict" turns off the extra-column and name-join tolerance.
+Column counts are checked even when both results are empty. Rounding uses the exact binary
+float value with ties to even, identically in Python and JavaScript.
+
+Evaluation re-executes the model's SQL and the gold query independently of the interactive
+200-row display cap, comparing complete results up to 100,000 rows. A prediction exceeding
+that limit or the Python evaluation timeout (20 seconds) is inconclusive and stays in the
+denominator without receiving credit. An over-limit gold query rejects the evaluation so the
+question can be repaired. Browser verification uses the same row limit and its 8-second timeout.
+The page shows the SQL actually executed for live verification; recorded attempts retain the
+original model SQL. Historical answers are preserved, not regenerated.
 
 ### Results (recorded 2026-11-19, Claude Code CLI 2.1.328, `claude -p`)
 
@@ -141,8 +154,8 @@ because turning a few rows into a sentence does not need a larger model. A secon
 
 | SQL model | Schema in prompt | Correct | Strict | Needed a retry | Retry then correct | Median SQL call | Cost (CLI-reported) |
 |---|---|---|---|---|---|---|---|
-| Sonnet 5.5 | full | **40 / 40** | 27 / 40 | 1 | 1 | 3.8 s | $1.03 incl. 40 answers |
-| Haiku 5.5 | full | **40 / 40** | 26 / 40 | 1 | 1 | 4.4 s | $0.057 (answers only for retried) |
+| Sonnet 5.5 | full | **40 / 40** | 26 / 40 | 1 | 1 | 3.8 s | $1.03 incl. 40 answers |
+| Haiku 5.5 | full | **40 / 40** | 25 / 40 | 1 | 1 | 4.4 s | $0.057 (answers only for retried) |
 | Haiku 5.5 | bare, 6 value-sensitive questions | 6 / 6 | 6 / 6 | 0 | 0 | 4.4 s | $0.005 |
 
 By difficulty (Sonnet 5.5): easy 12/12, medium 14/14, hard 14/14. Haiku 5.5 is the same.
@@ -154,7 +167,7 @@ treats as confirmation, and the result was scored correct. No SQL errors, guard 
 timeouts happened in the scored runs.
 
 Cost: the CLI reports cost per call. A Sonnet SQL call averaged $0.025 and a Haiku SQL call
-$0.0014; most of that is the ~2,000-token schema summary sent with every call.
+$0.0014. The schema summary is sent with every call; token counts were not retained in these recordings.
 
 The **bare** row is an ablation: the same pipeline with the sample values and the date-format
 note removed from the schema, on the six questions most likely to need an exact stored value
@@ -248,9 +261,10 @@ gold query; they are replayed on the demo page.
   partial" made Haiku add sentences like "The result contains only this one row, so it is the
   full answer and not a partial list" to many answers. The fix is to mention truncation only
   when it happened (the prompt already gets that flag) and drop the general rule.
-- **Strict accuracy is much lower (27/40 and 26/40)** because the models add useful columns:
+- **Strict accuracy is much lower (26/40 and 25/40)** because the models add useful columns:
   counts next to names, revenue next to the top artist, ids next to names. That is why the main
-  metric allows extra columns.
+  metric allows extra columns. Both h02 predictions select three columns versus two in gold;
+  their empty results pass the main metric but fail strict scoring.
 - **Gold queries can be ambiguous.** In a first draft, "Which playlists contain more than 1000
   tracks?" had a gold result with two rows named "Music" (two playlists share the name); a query
   that grouped by name would return one. The question now asks for id and name. Similar care
@@ -272,16 +286,20 @@ gold query; they are replayed on the demo page.
 - **"Suspicious empty" is a heuristic:** zero rows, or one row where every value is NULL or 0.
   It catches the common failure (a filter value that does not exist) but costs an extra call
   when the true answer is empty or zero. The model can confirm by returning the same query.
+  Literal case and spacing are preserved when checking confirmation. If later attempts fail,
+  an earlier suspicious result is not returned as success. A new suspicious result on the last
+  attempt is explicitly marked `unconfirmed_empty` in the output.
 - **Schema summary with sample values.** Categorical text columns with up to 12 distinct values
   list all of them; other columns show the 3 most frequent values. On a larger database this is
   where token cost grows.
 - **Same guard in Python and JavaScript.** `web/app.js` carries a port of `guard.py`; a pytest
-  runs the JS port on the same 28 cases in `tests/guard_cases.json` (skipped if `node` is not
-  installed). The scorer is ported too, so the demo re-checks each replayed run against its gold
-  query live.
+  runs the JS port on the same 35 cases in `tests/guard_cases.json`, including Unicode identifiers.
+  Node.js is required for the browser regression suite. Shared rounding and empty-shape fixtures,
+  plus every recorded scored result, are checked in both languages.
 - **Recorded, not invented.** Every model output on the demo page comes from
   `web/data/runs.json`, written by `sqlask-eval` from real CLI calls (188 calls in total, cached
-  in `.cache/`, so rerunning the eval costs nothing).
+  in `.cache/`). Use `sqlask-rescore` to recompute them without model calls; a new evaluation may
+  call a model when a prompt is not cached.
 
 ## Limitations
 
@@ -292,8 +310,8 @@ gold query; they are replayed on the demo page.
 - The answer text is not scored, and it can contain errors (see above).
 - The recorded runs went through the Claude Code CLI, not the API directly; costs are what the
   CLI reported, and latency includes CLI start-up.
-- 40 easy questions plus 20 harder ones on one database (and its disguised copy) is a small
-  benchmark; one question is 5 points of accuracy.
+- 40 original questions plus 20 harder ones on one database (and its disguised copy) is a small
+  benchmark; one question is 2.5 percentage points in the original set and 5 in the harder set.
 
 ## Layout
 
@@ -305,6 +323,7 @@ src/sqlask/providers.py  AnthropicProvider, ClaudeCLIProvider, FakeProvider
 src/sqlask/pipeline.py   ask(): attempts, retry feedback, answer step
 src/sqlask/scoring.py    execution-accuracy comparison
 src/sqlask/evaluate.py   eval runner (sqlask-eval), writes web/data/runs.json
+src/sqlask/replay.py     offline recomputation from recorded replies (sqlask-rescore)
 src/sqlask/disguise.py   builds the disguised copy (sqlask-disguise)
 eval/questions.json      40 scored questions with gold SQL (Chinook)
 eval/hard_questions.json 20 harder questions with gold SQL (disguised Chinook)

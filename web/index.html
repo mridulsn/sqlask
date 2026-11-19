@@ -33,8 +33,10 @@
       <p class="muted" id="rec-label">Recorded run</p>
     </div>
     <p class="muted small">The model calls below were recorded once and are replayed here, step by step.
-      Everything after the model writes its SQL (the guard, the query, the result table, the check against
-      the hand-written gold query) runs live in your browser with sql.js.</p>
+      Earlier attempts and their statuses are recorded playback. Only the final SQL and the gold query
+      pass through the guard and execute live in your browser with sql.js to verify the result.
+      Verification compares complete results up to 100,000 rows; larger results or timeouts are
+      not scored live. The answer text is recorded too.</p>
     <div class="picker">
       <label for="q-select">Example question</label>
       <div class="picker-row">
@@ -50,7 +52,7 @@
       <div id="r-final" hidden>
         <h3>Answer</h3>
         <p class="answer" id="r-answer"></p>
-        <h3>SQL used</h3>
+        <h3>SQL used for live verification</h3>
         <pre class="sql" id="r-sql"></pre>
         <h3>Result <span class="muted small" id="r-live-note">re-executed live in your browser</span></h3>
         <div class="table-wrap" id="r-table"></div>

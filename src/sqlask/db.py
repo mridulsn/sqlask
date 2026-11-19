@@ -28,11 +28,17 @@ def _authorizer(action, arg1, arg2, dbname, source):
     return sqlite3.SQLITE_OK if action in _ALLOWED_ACTIONS else sqlite3.SQLITE_DENY
 
 
-def open_readonly(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
-    path = Path(path)
+def readonly_uri(path: str | Path) -> str:
+    """file: URI for a read-only connection. Relative paths are resolved first
+    (Path.as_uri() rejects them); spaces, '?' and '#' are percent-encoded."""
+    path = Path(path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(path)
-    conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, check_same_thread=False)
+    return f"{path.as_uri()}?mode=ro"
+
+
+def open_readonly(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
+    conn = sqlite3.connect(readonly_uri(path), uri=True, check_same_thread=False)
     conn.execute("PRAGMA query_only = ON")
     conn.set_authorizer(_authorizer)
     return conn

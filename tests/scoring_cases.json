@@ -1,0 +1,26 @@
+{
+  "empty": [
+    {"gold": 2, "pred": 2, "strict": true, "match": true},
+    {"gold": 2, "pred": 3, "strict": true, "match": false},
+    {"gold": 2, "pred": 3, "strict": false, "match": true},
+    {"gold": 3, "pred": 1, "strict": false, "match": false},
+    {"gold": 2, "pred": 1, "strict": false, "match": true}
+  ],
+  "numbers": [
+    {"value": 1.125, "expected": 1.12},
+    {"value": -1.125, "expected": -1.12},
+    {"value": 0.375, "expected": 0.38},
+    {"value": -0.375, "expected": -0.38},
+    {"value": "1.125", "expected": 1.12},
+    {"value": " -0.375 ", "expected": -0.38},
+    {"value": 2.675, "expected": 2.67},
+    {"value": -2.675, "expected": -2.67},
+    {"value": 1.005, "expected": 1},
+    {"value": 1.1250000000000002, "expected": 1.13},
+    {"value": 1.1249999999999998, "expected": 1.12},
+    {"value": 0.30000000000000004, "expected": 0.3},
+    {"value": 1e20, "expected": 1e20},
+    {"value": 5e-324, "expected": 0},
+    {"value": "2011", "expected": 2011}
+  ]
+}

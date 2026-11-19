@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import sqlite3
 from functools import lru_cache
-from pathlib import Path
 
-from .db import DEFAULT_DB
+from .db import DEFAULT_DB, readonly_uri
 
 ALL_VALUES_UP_TO = 12   # list every value of a categorical text column with <= this many
 SAMPLES = 3
@@ -71,7 +70,7 @@ def build_schema_summary(conn: sqlite3.Connection, samples: bool = True) -> str:
 def schema_summary(path: str = str(DEFAULT_DB), samples: bool = True) -> str:
     # Plain read-only connection: PRAGMA table_info is blocked by the
     # authorizer used for model-written queries.
-    conn = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)
+    conn = sqlite3.connect(readonly_uri(path), uri=True)
     try:
         return build_schema_summary(conn, samples=samples)
     finally:

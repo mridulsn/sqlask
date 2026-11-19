@@ -3,6 +3,10 @@
 Rules (written down so the score can be argued with):
 - Values are normalised: numbers (and numeric strings like '2011') become
   floats rounded to 2 decimals; text is compared exactly; NULL equals NULL.
+  Rounding is Python's round(x, 2): correctly rounded from the exact binary
+  value, ties to even (1.125 -> 1.12, 0.375 -> 0.38, 2.675 -> 2.67 because the
+  stored double is just below 2.675). web/app.js implements the same rule and
+  both are checked against tests/scoring_cases.json.
 - Rows are compared as a multiset, or as a sequence when the question asks
   for an order (`ordered: true`).
 - Column names and column order do not matter. The prediction may carry
@@ -11,6 +15,10 @@ Rules (written down so the score can be argued with):
 - One join tolerance: two adjacent gold text columns (FirstName, LastName)
   also match a single predicted column holding "First Last" (any number of
   such pairs, e.g. employee name + manager name).
+- Shape counts even with no rows: pass the column counts (gold_ncols,
+  pred_ncols) and an empty prediction only matches an empty gold result when
+  it could carry the gold columns (strict: the same number of columns;
+  otherwise at least as many as gold has after joining adjacent pairs).
 `strict` mode turns off the extra-column and name-join tolerances.
 """
 from __future__ import annotations
@@ -79,6 +87,16 @@ def _gold_views(gold_rows: list[tuple]) -> list[list[tuple]]:
     return views
 
 
+def _empty_shape_ok(gold_ncols: int | None, pred_ncols: int | None, strict: bool) -> bool:
+    """Both results are empty: compare their column counts (when known)."""
+    if gold_ncols is None or pred_ncols is None:
+        return True
+    if strict:
+        return gold_ncols == pred_ncols
+    # the name-join tolerance can fold at most every second gold column
+    return pred_ncols >= gold_ncols - gold_ncols // 2
+
+
 def _match_view(gold: list[tuple], pred: list[tuple], ordered: bool, strict: bool) -> bool:
     if len(gold) != len(pred):
         return False
@@ -106,8 +124,11 @@ def _match_view(gold: list[tuple], pred: list[tuple], ordered: bool, strict: boo
     return False
 
 
-def results_match(gold_rows, pred_rows, ordered: bool = False, strict: bool = False) -> bool:
+def results_match(gold_rows, pred_rows, ordered: bool = False, strict: bool = False,
+                  gold_ncols: int | None = None, pred_ncols: int | None = None) -> bool:
     gold = [tuple(norm(v) for v in r) for r in gold_rows]
     pred = [tuple(norm(v) for v in r) for r in pred_rows]
+    if not gold and not pred:
+        return _empty_shape_ok(gold_ncols, pred_ncols, strict)
     views = [gold] if strict else _gold_views(gold)
     return any(_match_view(v, pred, ordered, strict) for v in views)

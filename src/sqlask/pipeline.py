@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 
 from .db import QueryResult, QueryTimeout, run_query
-from .guard import DEFAULT_MAX_ROWS, GuardError, check_sql
+from .guard import DEFAULT_MAX_ROWS, GuardError, check_sql, mask_sql
 from .providers import Provider, ProviderError
 
 MAX_ATTEMPTS = 3
@@ -51,6 +51,10 @@ class Attempt:
 
 @dataclass
 class AskResult:
+    """sql is the statement that actually reached SQLite (after the guard added
+    or capped the LIMIT); model_sql is what the model wrote for that attempt.
+    ok is True only when a result was accepted: a suspicious empty result that
+    was sent back and never confirmed or replaced does not count."""
     question: str
     answer: str
     sql: str | None
@@ -60,6 +64,8 @@ class AskResult:
     truncated: bool = False
     attempts: list[Attempt] = field(default_factory=list)
     answer_meta: dict = field(default_factory=dict)
+    model_sql: str | None = None
+    unconfirmed_empty: bool = False   # accepted on the last attempt without a confirmation
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -81,7 +87,30 @@ def extract_sql(text: str) -> str | None:
 
 
 def _norm_sql(sql: str | None) -> str:
-    return re.sub(r"\s+", " ", (sql or "").strip().rstrip(";")).lower()
+    """Normalise SQL for the "model returned the same query" check.
+
+    Outside quotes: comments dropped, whitespace collapsed, ASCII letters
+    lower-cased (SQLite keywords and names are case-insensitive). Inside
+    string literals and quoted identifiers nothing changes, because
+    'Atlantis' and 'ATLANTIS' (or 'a  b' and 'a b') are different filters."""
+    sql = (sql or "").strip()
+    try:
+        masked = mask_sql(sql)
+    except GuardError:
+        return sql
+    def outside(chunk: str) -> str:
+        return re.sub(r"\s+", " ", chunk).lower()
+
+    out, i = [], 0
+    for m in re.finditer(r"(['\"`\[]) *[\]'\"`]", masked):
+        out.append(outside(masked[i:m.start()]))
+        out.append(sql[m.start():m.end()])        # the literal, verbatim
+        i = m.end()
+    out.append(outside(masked[i:]))
+    s = "".join(out).strip()
+    while s.endswith(";"):
+        s = s[:-1].rstrip()
+    return s
 
 
 def is_suspicious_empty(res: QueryResult) -> bool:
@@ -118,6 +147,7 @@ def _jsonable(v):
 
 
 def build_answer_prompt(question: str, sql: str, res: QueryResult) -> str:
+    """sql must be the executed statement (AskResult.sql), not the model's text."""
     rows = [[_jsonable(v) for v in r] for r in res.rows[:ANSWER_ROWS]]
     note = ""
     if res.truncated or len(res.rows) > ANSWER_ROWS:
@@ -132,8 +162,10 @@ def ask(question: str, provider: Provider, conn: sqlite3.Connection, schema: str
         max_attempts: int = MAX_ATTEMPTS, max_rows: int = DEFAULT_MAX_ROWS,
         write_answer: bool | str = True) -> AskResult:
     attempts: list[Attempt] = []
-    final: QueryResult | None = None
-    final_sql: str | None = None
+    accepted: QueryResult | None = None
+    accepted_att: Attempt | None = None
+    provisional: Attempt | None = None   # last suspicious empty result that was sent back
+    unconfirmed = False
 
     for n in range(1, max_attempts + 1):
         prompt = build_sql_prompt(schema, question, attempts)
@@ -170,38 +202,47 @@ def ask(question: str, provider: Provider, conn: sqlite3.Connection, schema: str
         if (g.limit_added or g.limit_capped) and len(res.rows) >= max_rows:
             res.truncated = True
         att.row_count, att.columns = len(res.rows), res.columns
-        final, final_sql = res, att.sql
 
         confirmed = len(attempts) >= 2 and attempts[-2].error_kind == "empty" \
             and _norm_sql(attempts[-2].sql) == _norm_sql(att.sql)
-        if is_suspicious_empty(res) and not confirmed and n < max_attempts:
-            what = "no rows" if not res.rows else "a single row of NULL/0 values"
-            att.error = (f"the query ran but returned {what}. This often means a filter value does "
-                         "not match how the data is stored (spelling, case, abbreviation, date "
-                         "format) or a join drops every row.")
-            att.error_kind = "empty"
-            continue
+        if is_suspicious_empty(res) and not confirmed:
+            if n < max_attempts:
+                what = "no rows" if not res.rows else "a single row of NULL/0 values"
+                att.error = (f"the query ran but returned {what}. This often means a filter value does "
+                             "not match how the data is stored (spelling, case, abbreviation, date "
+                             "format) or a join drops every row.")
+                att.error_kind = "empty"
+                provisional = att
+                continue
+            unconfirmed = True  # last attempt: nothing left to check it with
+        accepted, accepted_att = res, att
         break
 
-    if final is None:
+    if accepted is None:
         last = attempts[-1] if attempts else None
-        return AskResult(question=question,
-                         answer=f"Could not produce a working query after {len(attempts)} attempt(s). "
-                                f"Last problem: {last.error if last else 'unknown'}",
-                         sql=last.sql if last else None, columns=[], rows=[], ok=False,
-                         attempts=attempts)
+        answer = f"Could not produce a working query after {len(attempts)} attempt(s)."
+        if provisional is not None:
+            what = "no rows" if not provisional.row_count else "a single row of NULL/0 values"
+            answer += (f" Attempt {provisional.n} ran but returned {what}; it was sent back for a "
+                       "check and no later attempt confirmed or replaced it.")
+        answer += f" Last problem: {last.error if last else 'unknown'}"
+        return AskResult(question=question, answer=answer,
+                         sql=last.executed_sql if last else None, columns=[], rows=[], ok=False,
+                         attempts=attempts, model_sql=last.sql if last else None)
 
-    rows = [[_jsonable(v) for v in r] for r in final.rows]
+    rows = [[_jsonable(v) for v in r] for r in accepted.rows]
     answer, meta = "", {}
     # write_answer: True, False, or "retried" (only when the query needed a retry)
     if write_answer is True or (write_answer == "retried" and len(attempts) > 1):
         try:
-            comp = provider.complete(ANSWER_SYSTEM, build_answer_prompt(question, final_sql, final),
+            comp = provider.complete(ANSWER_SYSTEM,
+                                     build_answer_prompt(question, accepted_att.executed_sql, accepted),
                                      model=answer_model, max_tokens=1000)
             answer = comp.text.strip()
             meta = {"model": comp.model, "cost_usd": comp.cost_usd, "latency_ms": comp.latency_ms}
         except ProviderError as e:
             answer = f"(answer step failed: {e})"
-    return AskResult(question=question, answer=answer, sql=final_sql, columns=final.columns,
-                     rows=rows, ok=True, truncated=final.truncated, attempts=attempts,
-                     answer_meta=meta)
+    return AskResult(question=question, answer=answer, sql=accepted_att.executed_sql,
+                     columns=accepted.columns, rows=rows, ok=True, truncated=accepted.truncated,
+                     attempts=attempts, answer_meta=meta, model_sql=accepted_att.sql,
+                     unconfirmed_empty=unconfirmed)

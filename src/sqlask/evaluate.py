@@ -12,7 +12,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .db import DEFAULT_DB, ROOT, open_readonly, run_query
+from .db import DEFAULT_DB, ROOT, QueryTimeout, open_readonly, run_query
 from .disguise import DISGUISED_DB
 from .guard import DEFAULT_MAX_ROWS, check_sql
 from .pipeline import MAX_ATTEMPTS, ask
@@ -36,50 +36,95 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     return json.loads(Path(path).read_text())
 
 
+# Scoring compares complete results, not the 200 rows the pipeline shows a
+# reader. Both the gold query and the accepted model query are re-run with
+# this much larger cap; a comparison that still hits it (or the time limit)
+# is marked inconclusive instead of being scored on a prefix.
+EVAL_MAX_ROWS = 100_000
+EVAL_TIMEOUT_S = 20.0
+
+
+def full_result(conn, sql: str):
+    """Run sql through the guard with the eval-sized cap. Returns the result,
+    or None when it is longer than EVAL_MAX_ROWS or too slow to compare."""
+    try:
+        # Fetch one extra row through BOTH caps to prove completeness.
+        res = run_query(conn, check_sql(sql, max_rows=EVAL_MAX_ROWS + 1).sql,
+                        max_rows=EVAL_MAX_ROWS, timeout_s=EVAL_TIMEOUT_S)
+    except QueryTimeout:
+        return None
+    return None if res.truncated else res
+
+
 def gold_result(conn, q: dict):
-    return run_query(conn, check_sql(q["gold_sql"]).sql)
+    return full_result(conn, q["gold_sql"])
+
+
+def score(gold, pred, ordered: bool) -> tuple[bool, bool]:
+    """(correct, strict) for two complete results."""
+    kw = dict(ordered=ordered, gold_ncols=len(gold.columns), pred_ncols=len(pred.columns))
+    return (results_match(gold.rows, pred.rows, **kw),
+            results_match(gold.rows, pred.rows, strict=True, **kw))
 
 
 def evaluate_one(q: dict, provider: Provider, db_path: Path, schema: str,
                  sql_model: str, answer_model: str, write_answer) -> dict:
     conn = open_readonly(db_path)  # one connection per worker thread
+    inconclusive = None
     try:
-        gold = gold_result(conn, q) if q.get("gold_sql") else None
         res = ask(q["question"], provider, conn, schema, sql_model=sql_model,
                   answer_model=answer_model, write_answer=write_answer)
+        if not q.get("gold_sql"):  # demo prompt without a gold query: recorded, not scored
+            correct = strict = None
+        else:
+            gold = gold_result(conn, q)
+            if gold is None:
+                raise ValueError(f"{q['id']}: gold result is longer than {EVAL_MAX_ROWS} rows "
+                                 "or too slow; fix the question")
+            if not res.ok:
+                correct = strict = False
+            else:
+                pred = full_result(conn, res.model_sql)
+                if pred is None:
+                    correct = strict = None
+                    inconclusive = (f"the predicted result is longer than {EVAL_MAX_ROWS} rows "
+                                    f"or took over {EVAL_TIMEOUT_S:.0f} s, so it was not compared")
+                else:
+                    correct, strict = score(gold, pred, q.get("ordered", False))
     finally:
         conn.close()
-    if gold is None:  # demo prompt without a gold query: recorded, not scored
-        correct = strict = None
-    else:
-        correct = bool(res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False)))
-        strict = bool(res.ok and results_match(gold.rows, res.rows, ordered=q.get("ordered", False),
-                                               strict=True))
     attempts = [{
-        "n": a.n, "sql": a.sql, "error": a.error, "error_kind": a.error_kind,
-        "row_count": a.row_count, "model": a.model, "cost_usd": a.cost_usd,
-        "latency_ms": a.latency_ms,
+        "n": a.n, "sql": a.sql, "executed_sql": a.executed_sql, "error": a.error,
+        "error_kind": a.error_kind, "row_count": a.row_count, "model": a.model,
+        "cost_usd": a.cost_usd, "latency_ms": a.latency_ms,
     } for a in res.attempts]
     cost = sum(a.cost_usd or 0 for a in res.attempts) + (res.answer_meta.get("cost_usd") or 0)
     return {
         "id": q["id"], "difficulty": q["difficulty"], "type": q.get("type"),
         "tags": q.get("tags", []),
         "question": q["question"], "ordered": q.get("ordered", False),
-        "gold_sql": q.get("gold_sql"), "gold_row_count": len(gold.rows) if gold else None,
+        "gold_sql": q.get("gold_sql"),
+        "gold_row_count": len(gold.rows) if q.get("gold_sql") else None,
         "note": q.get("note"),
-        "final_sql": res.sql, "ok": res.ok, "row_count": len(res.rows),
+        # final_sql: what reached SQLite (guard LIMIT included); model_sql: what the model wrote
+        "final_sql": res.sql, "model_sql": res.model_sql, "ok": res.ok,
+        "row_count": len(res.rows), "truncated": res.truncated,
+        "unconfirmed_empty": res.unconfirmed_empty,
         "answer": res.answer, "answer_model": res.answer_meta.get("model"),
         "attempts": attempts, "n_attempts": len(res.attempts),
-        "correct": correct, "correct_strict": strict,
+        "correct": correct, "correct_strict": strict, "inconclusive": inconclusive,
         "cost_usd": round(cost, 6),
     }
 
 
 def summarize(all_runs: list[dict]) -> dict:
-    runs = [r for r in all_runs if r["correct"] is not None]  # scored runs only
+    # scored runs: every question with a gold query. An inconclusive comparison
+    # stays in the denominator and does not count as correct.
+    runs = [r for r in all_runs if r.get("gold_sql")]
+
     def acc(rs, key="correct"):
-        return {"n": len(rs), "correct": sum(r[key] for r in rs),
-                "accuracy": round(sum(r[key] for r in rs) / len(rs), 3) if rs else None}
+        c = sum(1 for r in rs if r[key])
+        return {"n": len(rs), "correct": c, "accuracy": round(c / len(rs), 3) if rs else None}
 
     retried = [r for r in runs if r["n_attempts"] > 1]
     kinds: dict[str, int] = {}
@@ -97,9 +142,10 @@ def summarize(all_runs: list[dict]) -> dict:
         "by_type": {t: acc([r for r in runs if r.get("type") == t]) for t in types},
         "first_attempt_ok": len(first_try),
         "needed_retry": len(retried),
-        "retry_then_correct": sum(r["correct"] for r in retried),
+        "retry_then_correct": sum(1 for r in retried if r["correct"]),
         # wrong on the first try with no error or empty result to trigger a retry
         "wrong_without_retry": sum(1 for r in first_try if not r["correct"]),
+        "inconclusive_ids": [r["id"] for r in runs if r.get("inconclusive")],
         "retry_ids": [r["id"] for r in retried],
         "failed_ids": [r["id"] for r in runs if not r["correct"]],
         "error_kinds": kinds,

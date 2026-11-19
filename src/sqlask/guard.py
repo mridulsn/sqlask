@@ -8,6 +8,14 @@ It works on a "masked" copy of the SQL where string literals, quoted
 identifiers and comments are blanked out, so a ';' or 'DROP' inside a string
 cannot fool it. The same algorithm is ported to JavaScript in web/app.js and
 both are checked against tests/guard_cases.json.
+
+Token rules follow SQLite's tokenizer, not the regex engine's, so Python and
+JavaScript agree on non-ASCII text:
+  - whitespace is only space, tab, newline, form feed and carriage return;
+  - an identifier character is an ASCII letter, digit, '_' or '$', or any
+    character at or above U+0080 (SQLite reads `\u00e9delete` as one name);
+  - keywords are matched on an ASCII-only upper-case copy, so Unicode case
+    mappings (e.g. U+017F long s -> 'S') cannot create or hide a keyword.
 """
 from __future__ import annotations
 
@@ -23,6 +31,20 @@ FORBIDDEN = (
     "DETACH", "PRAGMA", "VACUUM", "REINDEX", "ANALYZE", "BEGIN", "COMMIT",
     "ROLLBACK", "SAVEPOINT", "RELEASE", "TRUNCATE", "GRANT", "LOAD_EXTENSION",
 )
+
+
+WS = "[ \t\n\f\r]"
+_ID = "A-Za-z0-9_$\u0080-\U0010FFFF"
+_ASCII_UPPER = str.maketrans("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+def _word(kw: str) -> str:
+    """Regex for keyword kw as a whole SQLite token."""
+    return rf"(?<![{_ID}]){kw}(?![{_ID}])"
+
+
+def _rstrip_ws(s: str) -> str:
+    return re.sub(rf"{WS}+$", "", s)
 
 
 class GuardError(ValueError):
@@ -82,7 +104,7 @@ def _top_level_limit(masked: str) -> re.Match | None:
     """Find a LIMIT keyword at parenthesis depth 0 (the outermost query)."""
     depth = 0
     last = None
-    for m in re.finditer(r"\(|\)|\bLIMIT\b", masked, flags=re.IGNORECASE):
+    for m in re.finditer(r"\(|\)|" + _word("LIMIT"), masked, flags=re.IGNORECASE | re.ASCII):
         tok = m.group(0)
         if tok == "(":
             depth += 1
@@ -97,28 +119,28 @@ def check_sql(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> GuardResult:
     """Validate one read-only query and return the SQL to execute.
 
     Raises GuardError with a short reason the model can act on."""
-    if sql is None or not sql.strip():
+    if sql is None or not re.sub(WS, "", sql):
         raise GuardError("empty query")
     masked = mask_sql(sql)
 
     # Drop trailing semicolons/whitespace; any other ';' means 2+ statements.
-    stripped = masked.rstrip()
+    stripped = _rstrip_ws(masked)
     while stripped.endswith(";"):
-        stripped = stripped[:-1].rstrip()
+        stripped = _rstrip_ws(stripped[:-1])
     if ";" in stripped:
         raise GuardError("only one statement is allowed")
     body = sql[: len(stripped)]
     masked = stripped
 
-    first = re.match(r"\s*([A-Za-z]+)", masked)
+    first = re.match(rf"{WS}*([A-Za-z]+)", masked)
     if not first or first.group(1).upper() not in ("SELECT", "WITH"):
         raise GuardError("only SELECT queries are allowed (must start with SELECT or WITH)")
 
-    upper = masked.upper()
+    upper = masked.translate(_ASCII_UPPER)
     for kw in FORBIDDEN:
-        if re.search(rf"\b{kw}\b", upper):
+        if re.search(_word(kw), upper):
             raise GuardError(f"forbidden keyword: {kw}")
-    if re.search(r"\bREPLACE\s+INTO\b", upper):
+    if re.search(_word(f"REPLACE{WS}+INTO"), upper):
         raise GuardError("forbidden keyword: REPLACE")
     if masked.count("(") != masked.count(")"):
         raise GuardError("unbalanced parentheses")
@@ -129,7 +151,7 @@ def check_sql(sql: str, max_rows: int = DEFAULT_MAX_ROWS) -> GuardResult:
 
     # LIMIT n [OFFSET m] or LIMIT m, n: cap a plain integer that is too large.
     tail = masked[limit.end():]
-    num = re.match(r"\s*(\d+)\s*(?:$|OFFSET\b)", tail, flags=re.IGNORECASE)
+    num = re.match(rf"{WS}*([0-9]+){WS}*(?:$|{_word('OFFSET')})", tail, flags=re.IGNORECASE | re.ASCII)
     if num:
         value = int(num.group(1))
         if value <= max_rows:

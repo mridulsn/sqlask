@@ -27,7 +27,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from .db import DEFAULT_DB, ROOT
+from .db import DEFAULT_DB, ROOT, readonly_uri
 
 DISGUISED_DB = ROOT / "web" / "data" / "medialib.sqlite"
 
@@ -187,8 +187,8 @@ def _rows(src: sqlite3.Connection, sql: str):
 
 
 def build(src_path: str | Path = DEFAULT_DB, out_path: str | Path = DISGUISED_DB) -> Path:
-    src_path, out_path = Path(src_path), Path(out_path)
-    src = sqlite3.connect(f"{src_path.as_uri()}?mode=ro", uri=True)
+    out_path = Path(out_path).expanduser().resolve()
+    src = sqlite3.connect(readonly_uri(src_path), uri=True)
     with tempfile.TemporaryDirectory(prefix="sqlask-disguise-") as tmp:
         work = sqlite3.connect(Path(tmp) / "work.sqlite")
         work.executescript(DDL)

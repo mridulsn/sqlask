@@ -28,6 +28,13 @@
   {"sql": "ATTACH DATABASE 'x.db' AS x", "ok": false, "reason": "only SELECT"},
   {"sql": "SELECT load_extension('evil')", "ok": false, "reason": "LOAD_EXTENSION"},
   {"sql": "/* hi */ UPDATE Track SET Name = 'x'", "ok": false, "reason": "only SELECT"},
-  {"sql": "EXPLAIN SELECT 1", "ok": false, "reason": "only SELECT"}
+  {"sql": "EXPLAIN SELECT 1", "ok": false, "reason": "only SELECT"},
+  {"sql": "SELECT 1 AS \u00e9delete", "ok": true, "expect_sql": "SELECT 1 AS \u00e9delete\nLIMIT 200"},
+  {"sql": "SELECT 1 AS delete\u00e9", "ok": true, "expect_sql": "SELECT 1 AS delete\u00e9\nLIMIT 200"},
+  {"sql": "SELECT 1 AS \u00e9limit", "ok": true, "expect_sql": "SELECT 1 AS \u00e9limit\nLIMIT 200"},
+  {"sql": "SELECT 1 AS limit\u00e9", "ok": true, "expect_sql": "SELECT 1 AS limit\u00e9\nLIMIT 200"},
+  {"sql": "SELECT 1 AS \u017finsert", "ok": true, "expect_sql": "SELECT 1 AS \u017finsert\nLIMIT 200"},
+  {"sql": "SELECT 1 AS \ud83d\ude00drop", "ok": true, "expect_sql": "SELECT 1 AS \ud83d\ude00drop\nLIMIT 200"},
+  {"sql": "SELECT 1 AS $delete", "ok": true, "expect_sql": "SELECT 1 AS $delete\nLIMIT 200"}
  ]
 }
