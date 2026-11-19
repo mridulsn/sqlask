@@ -109,6 +109,11 @@ textarea {
   font: 14px/1.55 var(--mono); color: var(--text);
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px;
 }
+.db-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 16px; }
+.db-row label { font-size: 14px; color: var(--muted); }
+.db-row select { flex: 0 1 320px; }
+.score-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.score-table td.miss { color: var(--err); }
 .play-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .guard-note { margin-top: 16px; font-size: 14px; }
 .guard-note pre.sql { margin-top: 8px; }

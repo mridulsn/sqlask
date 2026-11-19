@@ -199,18 +199,21 @@
   var QUERY_TIMEOUT_MS = 8000;
   var workerSrc = [
     "importScripts('" + SQLJS + "sql-wasm.js');",
-    "var db = null;",
+    "var dbs = {}, sqlP = null;",
     "onmessage = function (e) {",
     "  var m = e.data;",
     "  if (m.type === 'open') {",
-    "    initSqlJs({ locateFile: function (f) { return '" + SQLJS + "' + f; } }).then(function (SQL) {",
-    "      db = new SQL.Database(new Uint8Array(m.buf));",
+    "    if (!sqlP) sqlP = initSqlJs({ locateFile: function (f) { return '" + SQLJS + "' + f; } });",
+    "    sqlP.then(function (SQL) {",
+    "      var db = new SQL.Database(new Uint8Array(m.buf));",
     "      db.exec('PRAGMA query_only = 1');",
+    "      dbs[m.name] = db;",
     "      postMessage({ id: m.id, ok: true });",
     "    }, function (err) { postMessage({ id: m.id, ok: false, error: String(err && err.message || err) }); });",
     "  } else if (m.type === 'exec') {",
     "    var stmt = null;",
     "    try {",
+    "      var db = dbs[m.db]; if (!db) throw new Error('database not loaded: ' + m.db);",
     "      var t0 = Date.now(); stmt = db.prepare(m.sql);",
     "      var cols = stmt.getColumnNames(), rows = [];",
     "      while (stmt.step()) rows.push(stmt.get());",
@@ -222,7 +225,11 @@
     "};"
   ].join("\n");
 
-  var dbBytes = null, worker = null, pending = {}, nextId = 1, readyPromise = null;
+  // database files in data/; the disguised copy is fetched the first time it is needed
+  var CHINOOK = "chinook.sqlite", MEDIALIB = "medialib.sqlite";
+  var dbBufs = {}, dbReady = {}, worker = null, pending = {}, nextId = 1;
+
+  function openDb(name) { return send({ type: "open", name: name, buf: dbBufs[name].slice(0) }, 30000); }
 
   function startWorker() {
     var url = URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" }));
@@ -234,8 +241,19 @@
       clearTimeout(p.timer);
       if (e.data.ok) p.resolve(e.data); else p.reject(new Error(e.data.error));
     };
-    readyPromise = send({ type: "open", buf: dbBytes.slice(0) }, 30000);
-    return readyPromise;
+    // after a restart (query time limit), reopen every database already fetched
+    Object.keys(dbBufs).forEach(function (name) { dbReady[name] = openDb(name); });
+  }
+
+  function ensureDb(name) {
+    if (!dbReady[name]) {
+      dbReady[name] = fetch("data/" + name).then(function (r) {
+        if (!r.ok) throw new Error(name + " " + r.status);
+        return r.arrayBuffer();
+      }).then(function (buf) { dbBufs[name] = buf; return openDb(name); });
+      dbReady[name].catch(function () { delete dbReady[name]; });
+    }
+    return dbReady[name];
   }
 
   function send(msg, timeoutMs) {
@@ -253,15 +271,16 @@
     });
   }
 
-  function execSql(sql) {
-    return readyPromise.then(function () { return send({ type: "exec", sql: sql }, QUERY_TIMEOUT_MS); })
+  function execSql(sql, db) {
+    db = db || CHINOOK;
+    return ensureDb(db).then(function () { return send({ type: "exec", db: db, sql: sql }, QUERY_TIMEOUT_MS); })
       .then(function (r) { return { columns: r.columns, rows: r.rows, ms: r.ms }; });
   }
 
   // guard + execute; truncated when the guard's LIMIT was hit
-  function runGuarded(sql) {
+  function runGuarded(sql, db) {
     var g = checkSql(sql, DEFAULT_MAX_ROWS);
-    return execSql(g.sql).then(function (res) {
+    return execSql(g.sql, db).then(function (res) {
       res.guard = g;
       res.truncated = (g.limitAdded || g.limitCapped) && res.rows.length >= DEFAULT_MAX_ROWS;
       return res;
@@ -338,6 +357,11 @@
   // ------------------------------------------------------------------
   var SETS = [], setByName = {}, replayToken = { cancelled: false };
   var MAIN_SET = "sonnet", COMPARE_SET = "haiku";
+  var HARD_MAIN = "disguised-sonnet", HARD_COMPARE = "disguised-haiku";
+  var TYPE_LABEL = { "value": "Stored value shown in the schema", "hidden-value": "Stored value not shown",
+    "multi-join": "Joins across 3-5 tables", "window": "Window functions, ranking", "date-range": "Date ranges",
+    "ties": "Ties", "null": "NULL handling" };
+  function isHard(set) { return set.meta && set.meta.suite === "disguised"; }
   var KIND_LABEL = { sql_error: "SQL error", empty: "suspicious empty result", guard: "blocked by guard",
     parse: "no SQL in reply", timeout: "timed out", provider: "model call failed" };
 
@@ -361,9 +385,10 @@
     replayToken.cancelled = true;
     var token = { cancelled: false };
     replayToken = token;
-    var m = set.meta;
+    var m = set.meta, dbName = m.database || CHINOOK;
     $("rec-label").textContent = "Recorded run: SQL by " + m.sql_model + (m.answer_model ? ", answer by " + m.answer_model : "") +
-      ", via the Claude Code CLI, " + m.recorded + (m.schema === "bare" ? ", bare schema (no sample values)" : "");
+      ", via the Claude Code CLI, " + m.recorded + (m.schema === "bare" ? ", bare schema (no sample values)" : "") +
+      (isHard(set) ? ", disguised Chinook" : "");
     $("replay-out").hidden = false;
     $("r-question").textContent = run.question;
     var list = clear($("r-attempts"));
@@ -404,8 +429,8 @@
       var goldBox = $("r-gold");
       goldBox.hidden = !run.gold_sql;
       $("r-gold-sql").textContent = run.gold_sql || "";
-      var predP = run.final_sql ? runGuarded(run.final_sql) : Promise.resolve(null);
-      var goldP = run.gold_sql ? runGuarded(run.gold_sql) : Promise.resolve(null);
+      var predP = run.final_sql ? runGuarded(run.final_sql, dbName) : Promise.resolve(null);
+      var goldP = run.gold_sql ? runGuarded(run.gold_sql, dbName) : Promise.resolve(null);
       return Promise.all([predP, goldP]).then(function (rs) {
         var pred = rs[0], gold = rs[1];
         if (pred) renderTable(tableTarget, pred); else tableTarget.appendChild(el("p", { class: "result-meta", text: "No query ran." }));
@@ -427,7 +452,7 @@
   }
 
   function setOrder() {
-    var order = [MAIN_SET, "demos", COMPARE_SET, "ablation-bare"];
+    var order = [MAIN_SET, "demos", COMPARE_SET, "ablation-bare", HARD_MAIN, HARD_COMPARE];
     return SETS.slice().sort(function (a, b) {
       var ia = order.indexOf(a.name), ib = order.indexOf(b.name);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
@@ -454,7 +479,8 @@
     });
     if (picks.length) chips.appendChild(el("span", { class: "muted", text: "Runs that needed a retry:" }));
     picks.forEach(function (p) {
-      var name = p[1].id + " " + shortModel(p[0].meta.sql_model) + (p[0].name === "demos" ? " demo" : "");
+      var name = p[1].id + " " + shortModel(p[0].meta.sql_model) + (p[0].name === "demos" ? " demo" : "") +
+        (isHard(p[0]) ? " (disguised)" : "");
       var b = el("button", { type: "button", text: name, title: p[1].question });
       b.addEventListener("click", function () { sel.value = p[0].name + "/" + p[1].id; replay(sel.value); });
       chips.appendChild(b);
@@ -462,6 +488,9 @@
     sel.value = picks.length ? picks[0][0].name + "/" + picks[0][1].id : SETS[0].name + "/" + SETS[0].runs[0].id;
     var d1 = findRun("demos", "d1");
     if (d1) sel.value = "demos/d1";
+    // deep link: #run=<set>/<id>, e.g. #run=disguised-haiku/x06
+    var hm = /^#run=([\w-]+\/[\w-]+)$/.exec(location.hash || "");
+    if (hm && findRun(hm[1].split("/")[0], hm[1].split("/")[1])) sel.value = hm[1];
   }
 
   function renderScores() {
@@ -475,7 +504,7 @@
     cmpT.appendChild(el("thead", null, [el("tr", null, heads.map(function (h) {
       return el("th", { text: h[0], scope: "col", class: h[1] });
     }))]));
-    cmpT.appendChild(el("tbody", null, setOrder().filter(function (x) { return x.summary.overall.n; }).map(function (x) {
+    cmpT.appendChild(el("tbody", null, setOrder().filter(function (x) { return x.summary.overall.n && !isHard(x); }).map(function (x) {
       var o = x.summary.overall;
       return el("tr", null, [
         el("td", { text: shortModel(x.meta.sql_model) }),
@@ -508,11 +537,17 @@
       (m.cli_version ? " " + m.cli_version : "") + ". " + s.sql_calls + " SQL calls. Cost is what the CLI reported for the run." }));
 
     // 3. every question, main vs compare set
-    var rt = clear($("runs-table"));
-    var heads = [el("th", { text: "Id" }), el("th", { text: "Question" }), el("th", { text: shortModel(m.sql_model) })];
+    renderRunsTable($("runs-table"), main, cmp, false);
+  }
+
+  function renderRunsTable(target, main, cmp, showType) {
+    var rt = clear(target), m = main.meta;
+    var heads = [el("th", { text: "Id" }), el("th", { text: "Question" })];
+    if (showType) heads.push(el("th", { text: "Type", class: "hide-sm" }));
+    heads.push(el("th", { text: shortModel(m.sql_model) }));
     if (cmp) heads.push(el("th", { text: shortModel(cmp.meta.sql_model) }));
     rt.appendChild(el("thead", null, [el("tr", null, heads)]));
-    function cell(setName, r) {
+    function cell(r) {
       if (!r) return el("td");
       var txt = r.correct ? "ok" : "wrong";
       var td = el("td", { class: "res" }, [el("span", { class: "tag " + (r.correct ? "ok" : "err"), text: txt })]);
@@ -520,8 +555,10 @@
       return td;
     }
     rt.appendChild(el("tbody", null, main.runs.map(function (r) {
-      var cells = [el("td", { class: "id", text: r.id }), el("td", { text: r.question }), cell(main.name, r)];
-      if (cmp) cells.push(cell(cmp.name, findRun(cmp.name, r.id)));
+      var cells = [el("td", { class: "id", text: r.id }), el("td", { text: r.question })];
+      if (showType) cells.push(el("td", { class: "muted small hide-sm", text: TYPE_LABEL[r.type] || r.type || "" }));
+      cells.push(cell(r));
+      if (cmp) cells.push(cell(findRun(cmp.name, r.id)));
       var tr = el("tr", { tabindex: "0", title: "Replay " + r.id }, cells);
       function go() { $("q-select").value = main.name + "/" + r.id; replay($("q-select").value); $("replay").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" }); }
       tr.addEventListener("click", go);
@@ -530,9 +567,65 @@
     })));
   }
 
+  function money(x) { return "$" + x.toFixed(x < 0.1 ? 3 : 2); }
+
+  function renderHard() {
+    var a = setByName[HARD_MAIN], b = setByName[HARD_COMPARE];
+    if (!a) { $("hard").hidden = true; return; }
+    var sets = [a, b].filter(Boolean);
+    $("hard-label").textContent = "Recorded runs, " + a.meta.recorded;
+
+    // 1. one row per model
+    var t = clear($("hard-sets"));
+    var heads = [["Model", ""], ["Correct", ""], ["Strict", "hide-sm"], ["Retried", ""], ["Retry fixed it", ""], ["SQL calls", "hide-sm"], ["Cost", ""]];
+    t.appendChild(el("thead", null, [el("tr", null, heads.map(function (h) { return el("th", { text: h[0], scope: "col", class: h[1] }); }))]));
+    t.appendChild(el("tbody", null, sets.map(function (x) {
+      var s = x.summary, o = s.overall;
+      return el("tr", null, [
+        el("td", { text: shortModel(x.meta.sql_model) }),
+        el("td", { class: "num strong", text: o.correct + " / " + o.n }),
+        el("td", { class: "num hide-sm", text: s.overall_strict.correct + " / " + o.n }),
+        el("td", { class: "num", text: String(s.needed_retry) }),
+        el("td", { class: "num", text: String(s.retry_then_correct) }),
+        el("td", { class: "num hide-sm", text: String(s.sql_calls) }),
+        el("td", { class: "num", text: money(s.total_cost_usd) })
+      ]);
+    })));
+
+    // 2. by question type, models side by side
+    var types = Object.keys(a.summary.by_type || {});
+    var tt = clear($("hard-types"));
+    tt.appendChild(el("caption", { text: "By question type" }));
+    tt.appendChild(el("thead", null, [el("tr", null, [el("th", { text: "Type" })].concat(sets.map(function (x) {
+      return el("th", { text: shortModel(x.meta.sql_model) });
+    })))]));
+    tt.appendChild(el("tbody", null, types.map(function (k) {
+      return el("tr", null, [el("td", { text: TYPE_LABEL[k] || k })].concat(sets.map(function (x) {
+        var v = x.summary.by_type[k];
+        return el("td", { class: "num" + (v.correct < v.n ? " miss" : ""), text: v.correct + " / " + v.n });
+      })));
+    })));
+
+    // 3. what the retry loop did
+    var f = clear($("hard-facts"));
+    sets.forEach(function (x) {
+      var s = x.summary;
+      var kinds = Object.keys(s.error_kinds).map(function (k) { return s.error_kinds[k] + " " + (KIND_LABEL[k] || k); });
+      f.appendChild(el("p", null, [el("b", { text: shortModel(x.meta.sql_model) }), ": " + s.needed_retry + " of " + s.overall.n +
+        " questions needed a retry (" + s.retry_ids.join(", ") + "), " + s.retry_then_correct + " ended correct. Failed attempts: " +
+        (kinds.length ? kinds.join(", ") : "none") + ". Wrong: " + (s.failed_ids.length ? s.failed_ids.join(", ") : "none") + "."]));
+    });
+    f.appendChild(el("p", { class: "muted small", text: "SQL by the model named, answers by " + a.meta.answer_model +
+      " (only for questions that needed a retry), through " + a.meta.provider + (a.meta.cli_version ? " " + a.meta.cli_version : "") + "." }));
+
+    renderRunsTable($("hard-runs"), a, b, true);
+  }
+
   // ------------------------------------------------------------------
   // Playground
   // ------------------------------------------------------------------
+  function playDb() { return $("db-select").value; }
+
   function runPlayground() {
     var sql = $("sql-box").value;
     var note = clear($("play-guard")), target = clear($("play-table"));
@@ -549,7 +642,7 @@
       note.appendChild(el("p", { class: "ok-text", text: "Passed the guard unchanged." }));
     }
     $("run-btn").disabled = true;
-    runGuarded(sql).then(function (res) { renderTable(target, res); })
+    runGuarded(sql, playDb()).then(function (res) { renderTable(target, res); })
       .catch(function (err) {
         var msg = /^query stopped/.test(err.message) ? "Stopped: " + err.message.replace(/^query stopped/, "the query was stopped") : "SQLite error: " + err.message;
         target.appendChild(el("p", { class: "err-text", text: msg + "." }));
@@ -557,10 +650,10 @@
       .then(function () { $("run-btn").disabled = false; });
   }
 
-  function renderSchema() {
+  function renderSchema(db) {
     var q = "SELECT m.name, group_concat(p.name, ', ') FROM sqlite_master m JOIN pragma_table_info(m.name) p " +
       "WHERE m.type = 'table' GROUP BY m.name ORDER BY m.name";
-    execSql(q).then(function (res) {
+    execSql(q, db).then(function (res) {
       var box = clear($("schema-list"));
       res.rows.forEach(function (r) {
         box.appendChild(el("p", { class: "schema-table" }, [el("b", { text: r[0] }), " ", el("span", { text: r[1] })]));
@@ -578,13 +671,27 @@
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runPlayground(); }
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-sql]"), function (b) {
-      b.addEventListener("click", function () { $("sql-box").value = b.getAttribute("data-sql"); runPlayground(); });
+      b.addEventListener("click", function () {
+        $("sql-box").value = b.getAttribute(playDb() === MEDIALIB ? "data-sql-alt" : "data-sql");
+        runPlayground();
+      });
+    });
+    var EXAMPLES = {};
+    EXAMPLES[CHINOOK] = $("sql-box").value;
+    EXAMPLES[MEDIALIB] = "SELECT s.style_label AS style, COUNT(*) AS items\nFROM catalog_item i JOIN style s ON s.style_id = i.style_id\nGROUP BY s.style_id\nORDER BY items DESC";
+    $("db-select").addEventListener("change", function () {
+      var db = playDb();
+      $("sql-box").value = EXAMPLES[db];
+      clear($("play-guard")); clear($("play-table"));
+      clear($("schema-list")).appendChild(el("p", { class: "muted small", text: "Loading..." }));
+      renderSchema(db);
     });
     $("replay-btn").addEventListener("click", function () { replay($("q-select").value); });
     $("q-select").addEventListener("change", function () { replay($("q-select").value); });
 
     var runsP = fetch("data/runs.json").then(function (r) { if (!r.ok) throw new Error("runs.json " + r.status); return r.json(); });
-    var dbP = fetch("data/chinook.sqlite").then(function (r) { if (!r.ok) throw new Error("chinook.sqlite " + r.status); return r.arrayBuffer(); });
+    startWorker();
+    var dbP = ensureDb(CHINOOK);
 
     runsP.then(function (data) {
       SETS = data.sets || [];
@@ -592,15 +699,13 @@
       if (!SETS.length) throw new Error("no run sets in runs.json");
       fillPicker();
       renderScores();
+      renderHard();
     }).catch(function (err) { status.textContent = "Could not load the recorded runs: " + err.message; status.className = "status fail"; });
 
-    dbP.then(function (buf) {
-      dbBytes = buf;
-      return startWorker();
-    }).then(function () {
-      status.textContent = "Database loaded in your browser (sql.js 1.13.0, Chinook, 11 tables).";
+    dbP.then(function () {
+      status.textContent = "Database loaded in your browser (sql.js 1.13.0, Chinook, 11 tables). The disguised copy loads when a run needs it.";
       status.className = "status ready";
-      renderSchema();
+      renderSchema(CHINOOK);
       return runsP;
     }).then(function () {
       if (SETS.length) replay($("q-select").value);

@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .db import DEFAULT_DB, ROOT, open_readonly, run_query
+from .disguise import DISGUISED_DB
 from .guard import DEFAULT_MAX_ROWS, check_sql
 from .pipeline import MAX_ATTEMPTS, ask
 from .providers import (AnthropicProvider, ClaudeCLIProvider, FakeProvider, Provider,
@@ -21,7 +22,14 @@ from .schema import schema_summary
 from .scoring import results_match
 
 QUESTIONS = ROOT / "eval" / "questions.json"
+HARD_QUESTIONS = ROOT / "eval" / "hard_questions.json"
 DIFFICULTIES = ("easy", "medium", "hard")
+# question set -> (questions file, database). "disguised" is Chinook with renamed
+# tables/columns, shifted dates, scaled prices and replaced values (disguise.py).
+SUITES = {
+    "chinook": (QUESTIONS, DEFAULT_DB),
+    "disguised": (HARD_QUESTIONS, DISGUISED_DB),
+}
 
 
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
@@ -54,7 +62,8 @@ def evaluate_one(q: dict, provider: Provider, db_path: Path, schema: str,
     } for a in res.attempts]
     cost = sum(a.cost_usd or 0 for a in res.attempts) + (res.answer_meta.get("cost_usd") or 0)
     return {
-        "id": q["id"], "difficulty": q["difficulty"], "tags": q.get("tags", []),
+        "id": q["id"], "difficulty": q["difficulty"], "type": q.get("type"),
+        "tags": q.get("tags", []),
         "question": q["question"], "ordered": q.get("ordered", False),
         "gold_sql": q.get("gold_sql"), "gold_row_count": len(gold.rows) if gold else None,
         "note": q.get("note"),
@@ -79,13 +88,18 @@ def summarize(all_runs: list[dict]) -> dict:
             if a["error_kind"]:
                 kinds[a["error_kind"]] = kinds.get(a["error_kind"], 0) + 1
     first_try = [r for r in runs if r["n_attempts"] == 1]
+    types = list(dict.fromkeys(r.get("type") for r in runs if r.get("type")))
     return {
         "overall": acc(runs),
         "overall_strict": acc(runs, "correct_strict"),
-        "by_difficulty": {d: acc([r for r in runs if r["difficulty"] == d]) for d in DIFFICULTIES},
+        "by_difficulty": {d: acc([r for r in runs if r["difficulty"] == d]) for d in DIFFICULTIES
+                          if any(r["difficulty"] == d for r in runs)},
+        "by_type": {t: acc([r for r in runs if r.get("type") == t]) for t in types},
         "first_attempt_ok": len(first_try),
         "needed_retry": len(retried),
         "retry_then_correct": sum(r["correct"] for r in retried),
+        # wrong on the first try with no error or empty result to trigger a retry
+        "wrong_without_retry": sum(1 for r in first_try if not r["correct"]),
         "retry_ids": [r["id"] for r in retried],
         "failed_ids": [r["id"] for r in runs if not r["correct"]],
         "error_kinds": kinds,
@@ -118,13 +132,14 @@ def _cli_version() -> str | None:
         return None
 
 
-def make_provider(name: str) -> Provider:
+def make_provider(name: str, questions: list[dict] | None = None) -> Provider:
     if name == "anthropic":
         return AnthropicProvider()
     if name == "cli":
         return ClaudeCLIProvider(cache_dir=ROOT / ".cache" / "claude-cli")
     if name == "fake":  # smoke test: always answers with the gold SQL
-        gold = {q["question"]: q["gold_sql"] for q in load_questions()}
+        gold = {q["question"]: q["gold_sql"] for q in (questions or load_questions())
+                if q.get("gold_sql")}
 
         def reply(system, prompt, model):
             for question, sql in gold.items():
@@ -143,9 +158,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--answers", choices=["all", "retried", "none"], default="all",
                    help="which questions get the answer-writing call (fewer calls = cheaper)")
     p.add_argument("--only", nargs="*", help="question ids to run")
-    p.add_argument("--questions", default=str(QUESTIONS), help="question file")
+    p.add_argument("--suite", choices=sorted(SUITES), default="chinook",
+                   help="question set + database: chinook (40 questions) or disguised (20 harder)")
+    p.add_argument("--questions", default=None, help="question file (overrides --suite)")
     p.add_argument("--parallel", type=int, default=3)
-    p.add_argument("--db", default=str(DEFAULT_DB))
+    p.add_argument("--db", default=None, help="database file (overrides --suite)")
     p.add_argument("--schema", choices=["full", "bare"], default="full",
                    help="bare = no sample values or notes (ablation)")
     p.add_argument("--set-name", default="main", help="name of this run set inside the output file")
@@ -153,11 +170,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--out", default=str(ROOT / "web" / "data" / "runs.json"))
     args = p.parse_args(argv)
 
-    qs = load_questions(Path(args.questions))
+    suite_questions, suite_db = SUITES[args.suite]
+    qs = load_questions(Path(args.questions or suite_questions))
     if args.only:
         qs = [q for q in qs if q["id"] in set(args.only)]
-    provider = make_provider(args.provider)
-    db_path = Path(args.db)
+    provider = make_provider(args.provider, qs)
+    db_path = Path(args.db or suite_db)
     schema = schema_summary(str(db_path), samples=args.schema == "full")
 
     with ThreadPoolExecutor(max_workers=max(1, min(args.parallel, 3))) as pool:
@@ -189,6 +207,7 @@ def main(argv: list[str] | None = None) -> None:
             "max_attempts": MAX_ATTEMPTS,
             "max_rows": DEFAULT_MAX_ROWS,
             "database": db_path.name,
+            "suite": args.suite,
             "n_questions": len(runs),
             "schema": args.schema,
         },
@@ -202,7 +221,10 @@ def main(argv: list[str] | None = None) -> None:
               f"({s['overall']['accuracy']:.1%}); strict {s['overall_strict']['accuracy']:.1%}")
         for d, v in s["by_difficulty"].items():
             print(f"  {d:6s} {v['correct']}/{v['n']}")
-    print(f"needed retry: {s['needed_retry']}, of which correct: {s['retry_then_correct']}")
+        for t, v in s["by_type"].items():
+            print(f"  {t:12s} {v['correct']}/{v['n']}")
+    print(f"needed retry: {s['needed_retry']}, of which correct: {s['retry_then_correct']}; "
+          f"wrong with no retry: {s['wrong_without_retry']}")
     print(f"cost: ${s['total_cost_usd']}  -> {args.out}")
 
 

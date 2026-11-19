@@ -7,7 +7,8 @@ attempts. You get a short plain-English answer, the SQL that produced it, and th
 
 Live demo (static, no server, no API key; to be published at `https://mridulsaravanan.com/sqlask/`).
 It replays recorded model runs step by step, re-executes every query in the browser with
-sql.js, lets you run your own SQL through the same guard, and shows the eval scoreboard.
+sql.js (on Chinook or the disguised copy), lets you run your own SQL through the same guard, and
+shows both eval scoreboards. `index.html#run=disguised-haiku/x06` opens a specific run.
 
 ```
  question
@@ -47,7 +48,7 @@ Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-uv run pytest                                  # offline, uses FakeProvider (59 tests)
+uv run pytest                                  # offline, uses FakeProvider (64 tests)
 
 uv run sqlask "How many invoices were billed to the UK?"
 uv run sqlask "Which artist has earned the most revenue?" --json
@@ -55,6 +56,10 @@ uv run sqlask "Which artist has earned the most revenue?" --json
 uv run sqlask-eval                             # full eval, writes web/data/runs.json
 uv run sqlask-eval --sql-model haiku --answers retried --set-name haiku
 uv run sqlask-eval --provider fake             # smoke test: echoes the gold SQL, no model calls
+
+uv run sqlask-disguise                         # rebuild web/data/medialib.sqlite from Chinook
+uv run sqlask-eval --suite disguised --sql-model sonnet --answers retried --set-name disguised-sonnet
+uv run sqlask-eval --suite disguised --sql-model haiku --answers retried --set-name disguised-haiku
 ```
 
 Which model backend is used:
@@ -92,6 +97,26 @@ changed). Copyright (c) 2008-2024 Luis Rocha, MIT licence; the full notice is in
 `web/data/CHINOOK-LICENSE.md`. It models a music store: 11 tables (Artist, Album, Track, Genre,
 MediaType, Playlist, PlaylistTrack, Customer, Employee, Invoice, InvoiceLine), invoices 2009-2013.
 The customer and employee records are sample data.
+
+`web/data/medialib.sqlite` is a disguised copy of the same rows, built deterministically by
+`src/sqlask/disguise.py` (`uv run sqlask-disguise`) for the harder eval below:
+
+- every table and column renamed to a "media library" vocabulary: `Artist` -> `creator`,
+  `Album` -> `collection`, `Track` -> `catalog_item`, `Genre` -> `style`, `MediaType` -> `file_format`,
+  `Playlist` -> `shelf`, `Customer` -> `member`, `Employee` -> `staff`, `Invoice` -> `checkout`,
+  `InvoiceLine` -> `checkout_line` (columns likewise: `Milliseconds` -> `duration_sec`, `SupportRepId` -> `advisor_id`)
+- every date shifted by 2,963 days 9 h 30 min, so invoices run 2017-02-11 to 2022-02-01, year
+  totals no longer match the well-known ones, and every timestamp has a 09:30 time of day
+- prices multiplied by 75 (0.99 -> 74.25); checkout totals recomputed from their lines
+- track length stored in whole seconds, file size in KB
+- some stored values replaced: genres (`'Hip Hop/Rap'` -> `'Urban / Rap'`, `'Heavy Metal'` ->
+  `'Metal (Classic)'`, `'Classical'` -> `'Orchestral'`, ...), media types (`'MPEG audio file'` -> `'mp3'`),
+  job titles (`'Sales Support Agent'` -> `'Customer Advisor'`, `'IT Staff'` -> `'Systems Technician'`), and
+  six countries (`'USA'` -> `'US'`, `'United Kingdom'` -> `'GB'`, `'Brazil'` -> `'Brasil'`,
+  `'Germany'` -> `'Deutschland'`, `'Czech Republic'` -> `'Czechia'`, `'Netherlands'` -> `'NL'`)
+
+A test rebuilds it and checks the committed file has the same rows, that no original table or
+column name is left, and that every checkout total still equals the sum of its lines.
 
 ## Evaluation
 
@@ -138,6 +163,60 @@ note removed from the schema, on the six questions most likely to need an exact 
 defensive filters: `BillingCountry IN ('United Kingdom', 'UK')`, `g.Name LIKE '%hip%hop%'`,
 `LOWER(Title) = 'sales support agent'`.
 
+**This first set was too easy.** Both models scored 40/40, the retry loop fired once per model,
+and the bare-schema ablation suggests the models know Chinook well enough that the sample values
+barely matter. That is why the harder set below exists.
+
+### Harder set: disguised Chinook (recorded 2026-11-19, same CLI)
+
+`eval/hard_questions.json` has 20 questions with hand-written gold SQL on `medialib.sqlite`, written
+to hit the places where text-to-SQL usually goes wrong. Each has a type:
+
+| Type | n | What it tests |
+|---|---|---|
+| value | 3 | the stored value differs from the natural wording but is shown in the schema summary (`'US'`, `'Brasil'`, "IT team" = `'Systems Lead'`/`'Systems Technician'`) |
+| hidden-value | 3 | the stored value is not in the summary (only the 3 most common values of a 25-value column are shown): `'Urban / Rap'`, `'GB'`, `'Metal (Classic)'` |
+| multi-join | 3 | joins across 3-5 tables (revenue per advisor, top creators outside US/Canada) |
+| window | 3 | per-group maximum with a three-way tie, running total, Nth longest |
+| date-range | 3 | first half / third quarter of 2019 where rows sit on 30 June and 30 September at 09:30, so `BETWEEN '2019-01-01' AND '2019-06-30'` drops them; first checkout per member |
+| ties | 2 | "the top-spending member in 2019" (two tie), "the shelf with the most items" (two shelves, both named 'Music') |
+| null | 3 | "not in California" where 29 members have no province (`province <> 'CA'` gives 27, not 56); `NOT IN` over a column with a NULL; LEFT JOIN that must keep a zero row |
+
+Same pipeline, same schema summary, same scoring, retry loop on (max 3 attempts). The answer
+sentence was written only for questions that needed a retry, to stay inside the call budget.
+
+| SQL model | Correct | Strict | Needed a retry | Retry then correct | Wrong with no retry | SQL calls | Median SQL call | Cost (CLI-reported) |
+|---|---|---|---|---|---|---|---|---|
+| Sonnet 5.5 | **19 / 20** | 15 / 20 | 2 (x05, x06) | 1 | 0 | 23 | 3.3 s | $0.56 |
+| Haiku 5.5 | **19 / 20** | 16 / 20 | 2 (x05, x06) | 1 | 0 | 22 | 3.7 s | $0.031 |
+
+By type, both models: value 3/3, hidden-value 2/3, multi-join 3/3, window 3/3, date-range 3/3,
+ties 2/2, null 3/3. 49 CLI calls in total for the two runs (45 SQL, 4 answers).
+
+What happened:
+
+- **The disguise did not separate the models either.** Both scored 19/20 and missed the same
+  question. Hiding the names and values removed memorisation, but the date, tie, NULL and join
+  traps caught neither model: both used half-open ranges (`>= '2019-01-01' AND < '2019-07-01'`),
+  kept tied rows by comparing with a `MAX(...)` subquery instead of `LIMIT 1`, handled the missing
+  provinces (`IS NOT 'CA'`, `COALESCE`), used `NOT EXISTS` instead of `NOT IN`, and kept the zero row
+  with a LEFT JOIN.
+- **The retry loop now does real work.** x05 ("revenue billed to the United Kingdom"): Sonnet tried
+  `'United Kingdom'`, then `'UK'`, both returned `SUM = NULL` and were sent back, and attempt 3 used
+  `UPPER(TRIM(bill_nation)) IN ('UNITED KINGDOM', 'UK', ..., 'GB', ...)` and was correct. Haiku went
+  from `IN ('United Kingdom', 'UK')` to a wider list with `'GB'` on attempt 2.
+- **The one miss is a silent wrong answer after a retry.** x06 ("heavy metal"): the first guesses
+  (`LIKE '%Heavy%'`, `= 'heavy metal'`) returned 0 and were sent back; the retry `LIKE '%metal%'`
+  also counted the separate `'Metal'` style and returned 402 instead of 28. A non-zero count is
+  not "suspicious", so nothing flagged it. The answer step even said the count "may include more
+  than just heavy metal", but that caveat is not scored.
+- **x04 was guessed without a retry:** both models wrote `LIKE '%hip%' OR LIKE '%rap%'`, which
+  happens to match only `'Urban / Rap'`.
+- **The real weakness is the schema summary, not the model.** A lookup table where every row is
+  distinct (25 styles, 5 file formats) gets only 3 example values, so the model never sees
+  `'Metal (Classic)'` or `'m4v-drm'`. Listing every value of small lookup tables would likely fix
+  x06; I left the summary unchanged so the two eval sets use the same pipeline.
+
 ### Demo prompts (recorded, not scored)
 
 `eval/demo_questions.json` holds four prompts meant to exercise the failure paths. They have no
@@ -152,12 +231,15 @@ gold query; they are replayed on the demo page.
 
 ### Failure cases I saw
 
-- **The benchmark is saturated.** 40/40 for both models means this question set does not
+- **The first benchmark is saturated.** 40/40 for both models means that question set does not
   separate them and barely exercises the retry loop. Chinook is one of the most widely used
   sample databases, and the bare-schema ablation suggests the models either know its values or
-  hedge well enough that it does not matter. A harder test needs a database the models have not
-  seen (or Chinook with renamed tables and perturbed values) and questions written by someone
-  who has not read the schema.
+  hedge well enough that it does not matter. The disguised set fixes the memorisation part, but
+  at 19/20 each it still does not separate Sonnet 5.5 from Haiku 5.5; my 20 questions were written
+  by someone who had read the schema, and a set that separates the models probably needs a larger
+  unfamiliar schema and questions written blind.
+- **The answer step invents a currency.** The disguised prices have no currency, but both models'
+  answers for x05 say "GBP 8,464.50" (written with a pound sign) because the question mentions the UK.
 - **The answer step makes mistakes that the score does not catch.** Execution accuracy only
   scores the SQL result. The recorded answers include: h11 says "Across 25 countries" (there are
   24) and lists Luis Rojas ($46.62) before Richard Cunningham ($47.62) as "followed by"; m04 says
@@ -198,7 +280,7 @@ gold query; they are replayed on the demo page.
   installed). The scorer is ported too, so the demo re-checks each replayed run against its gold
   query live.
 - **Recorded, not invented.** Every model output on the demo page comes from
-  `web/data/runs.json`, written by `sqlask-eval` from real CLI calls (139 calls in total, cached
+  `web/data/runs.json`, written by `sqlask-eval` from real CLI calls (188 calls in total, cached
   in `.cache/`, so rerunning the eval costs nothing).
 
 ## Limitations
@@ -210,7 +292,8 @@ gold query; they are replayed on the demo page.
 - The answer text is not scored, and it can contain errors (see above).
 - The recorded runs went through the Claude Code CLI, not the API directly; costs are what the
   CLI reported, and latency includes CLI start-up.
-- 40 questions on one well-known database is a small, easy benchmark.
+- 40 easy questions plus 20 harder ones on one database (and its disguised copy) is a small
+  benchmark; one question is 5 points of accuracy.
 
 ## Layout
 
@@ -222,7 +305,9 @@ src/sqlask/providers.py  AnthropicProvider, ClaudeCLIProvider, FakeProvider
 src/sqlask/pipeline.py   ask(): attempts, retry feedback, answer step
 src/sqlask/scoring.py    execution-accuracy comparison
 src/sqlask/evaluate.py   eval runner (sqlask-eval), writes web/data/runs.json
-eval/questions.json      40 scored questions with gold SQL
+src/sqlask/disguise.py   builds the disguised copy (sqlask-disguise)
+eval/questions.json      40 scored questions with gold SQL (Chinook)
+eval/hard_questions.json 20 harder questions with gold SQL (disguised Chinook)
 eval/demo_questions.json 4 unscored demo prompts
 tests/                   pytest suite (offline) + guard_cases.json shared with the JS port
 web/                     static demo: index.html, app.js, style.css, data/

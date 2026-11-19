@@ -73,6 +73,13 @@
       <code>guard.py</code>, tested against the same cases): one statement, <code>SELECT</code> or
       <code>WITH</code> only, no write keywords, and a <code>LIMIT 200</code> added or capped. The database
       is also opened with <code>query_only</code>, and a query that runs longer than 8 seconds is stopped.</p>
+    <div class="db-row">
+      <label for="db-select">Database</label>
+      <select id="db-select">
+        <option value="chinook.sqlite">Chinook (original)</option>
+        <option value="medialib.sqlite">Disguised Chinook (harder set)</option>
+      </select>
+    </div>
     <label for="sql-box" class="visually-hidden">SQL query</label>
     <textarea id="sql-box" spellcheck="false" rows="7">SELECT g.Name AS genre, COUNT(*) AS tracks
 FROM Track t JOIN Genre g ON g.GenreId = t.GenreId
@@ -81,10 +88,10 @@ ORDER BY tracks DESC</textarea>
     <div class="play-row">
       <button id="run-btn" type="button" class="primary">Run query</button>
       <span class="muted small">Try:</span>
-      <button type="button" class="ghost" data-sql="SELECT Name FROM Track">no LIMIT</button>
-      <button type="button" class="ghost" data-sql="DROP TABLE Track">DROP TABLE</button>
-      <button type="button" class="ghost" data-sql="SELECT 1; DELETE FROM Invoice">two statements</button>
-      <button type="button" class="ghost" data-sql="SELECT COUNT(*) FROM Customers">a typo</button>
+      <button type="button" class="ghost" data-sql="SELECT Name FROM Track" data-sql-alt="SELECT item_title FROM catalog_item">no LIMIT</button>
+      <button type="button" class="ghost" data-sql="DROP TABLE Track" data-sql-alt="DROP TABLE catalog_item">DROP TABLE</button>
+      <button type="button" class="ghost" data-sql="SELECT 1; DELETE FROM Invoice" data-sql-alt="SELECT 1; DELETE FROM checkout">two statements</button>
+      <button type="button" class="ghost" data-sql="SELECT COUNT(*) FROM Customers" data-sql-alt="SELECT COUNT(*) FROM members">a typo</button>
     </div>
     <div id="play-guard" class="guard-note" aria-live="polite"></div>
     <div class="table-wrap" id="play-table"></div>
@@ -109,10 +116,10 @@ ORDER BY tracks DESC</textarea>
       sample values per column. "bare" drops the sample values (an ablation on the 6 questions most likely to need
       an exact stored value). Retried counts questions that needed more than one attempt; "x2" in the table below
       marks them. Strict also requires the same number of columns as the gold query.</p>
-    <p class="note">Both models scored 40 of 40, so this set does not separate them, and the retry loop
-      rarely had to fire. Chinook is a very widely used sample database and the models write defensive filters
-      for it (<code>LIKE '%hip%hop%'</code>, <code>IN ('United Kingdom', 'UK')</code>) even with no sample
-      values in the prompt. The four demo prompts above show the retry loop doing real work.</p>
+    <p class="note">This first set was too easy. Both models scored 40 of 40, so it does not separate them,
+      and the retry loop fired once per model. Chinook is a very widely used sample database and the models
+      write defensive filters for it (<code>LIKE '%hip%hop%'</code>, <code>IN ('United Kingdom', 'UK')</code>)
+      even with no sample values in the prompt. The <a href="#hard">harder set below</a> runs on a disguised copy.</p>
     <div class="score-grid">
       <table class="score-table" id="score-table"></table>
       <div class="score-facts" id="score-facts"></div>
@@ -123,12 +130,48 @@ ORDER BY tracks DESC</textarea>
       <table class="runs-table" id="runs-table"></table>
     </div>
   </section>
+
+  <section id="hard" aria-labelledby="hard-h">
+    <div class="sec-head">
+      <h2 id="hard-h">Harder set: disguised Chinook</h2>
+      <p class="muted" id="hard-label"></p>
+    </div>
+    <p class="muted small">The same rows rebuilt under unfamiliar names (<code>Track</code> becomes
+      <code>catalog_item</code>, <code>Invoice</code> becomes <code>checkout</code>), every date shifted by 2,963 days
+      and 9 h 30 min, prices multiplied by 75, track length in seconds, and some stored values replaced
+      (<code>'Hip Hop/Rap'</code> is <code>'Urban / Rap'</code>, <code>'USA'</code> is <code>'US'</code>,
+      <code>'United Kingdom'</code> is <code>'GB'</code>). 20 harder questions with hand-written gold queries: joins across
+      up to five tables, window functions, date boundaries, ties, NULL traps, and values that are or are not shown in
+      the schema summary. Same pipeline, same scoring, retry loop on.</p>
+    <div class="table-wrap">
+      <table class="sets-table" id="hard-sets"></table>
+    </div>
+    <div class="score-grid">
+      <table class="score-table" id="hard-types"></table>
+      <div class="score-facts" id="hard-facts"></div>
+    </div>
+    <p class="note">The disguise removed the memorised names and values, but it still did not separate the models:
+      Sonnet 5.5 and Haiku 5.5 both scored 19 of 20 and missed the same question. The retry loop now does real work:
+      for the United Kingdom question both models first tried <code>'United Kingdom'</code> and <code>'UK'</code>, got
+      an empty result, and reached <code>'GB'</code> with a wider <code>IN (...)</code> list (Haiku on attempt 2, Sonnet
+      on attempt 3). The one miss is "heavy metal": the summary shows only three of the 25 style labels, the first
+      guesses (<code>LIKE '%Heavy%'</code>, <code>= 'heavy metal'</code>) came back empty, and the retry
+      <code>LIKE '%metal%'</code> also counted the separate <code>'Metal'</code> style (402 instead of 28), which looks
+      plausible, so nothing flagged it. The date-boundary, tie and NULL traps caught neither model.</p>
+    <h3>Every question in the harder set</h3>
+    <p class="muted small">Select a row to replay it above; the query and the gold query run live on the disguised
+      database.</p>
+    <div class="table-wrap">
+      <table class="runs-table" id="hard-runs"></table>
+    </div>
+  </section>
 </main>
 
 <footer>
   <p>Data: the <a href="https://github.com/lerocha/chinook-database">Chinook sample database</a>,
     copyright (c) 2008-2024 Luis Rocha, used under the <a href="data/CHINOOK-LICENSE.md">MIT licence</a>.
-    Customer and employee records in it are sample data.</p>
+    Customer and employee records in it are sample data. <code>data/medialib.sqlite</code> is a disguised copy
+    built from it by <code>disguise.py</code>.</p>
   <p>Built by Mridul Saravanan. <a href="https://github.com/mridulsn/sqlask">Source on GitHub</a> &middot;
     <a href="/">mridulsaravanan.com</a></p>
 </footer>
